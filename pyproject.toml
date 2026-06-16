@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "article-to-kindle"
+version = "0.1.0"
+description = "Convert X.com articles to Kindle-compatible EPUBs"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "beautifulsoup4>=4.15.0",
+    "click>=8.0",
+    "httpx>=0.28",
+    "ebooklib>=0.18",
+]
+
+[project.scripts]
+article-to-kindle = "article_to_kindle.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/article_to_kindle"]
