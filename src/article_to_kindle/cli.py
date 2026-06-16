@@ -77,7 +77,12 @@ def main(
         )
 
         # Determine output path
-        output_path = output or Path(article.output_filename())
+        if output:
+            output_path = output
+        else:
+            epubs_dir = Path("epubs")
+            epubs_dir.mkdir(exist_ok=True)
+            output_path = epubs_dir / article.output_filename()
         if output_path.suffix != ".epub":
             output_path = output_path.with_suffix(".epub")
 
