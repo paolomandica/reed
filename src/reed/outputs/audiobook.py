@@ -1,158 +1,153 @@
-"""Generate audiobooks from articles using Hugging Face TTS models.
+"""Generate audiobooks from articles using OmniVoice TTS model.
 
-Audio processing is done with the stdlib ``wave`` module (WAV I/O)
-and ``ffmpeg`` (concatenation + MP3 encoding).  No third-party audio
-libraries are required beyond a system ffmpeg installation.
+Audio processing uses ``soundfile`` (WAV I/O), ``numpy`` (concatenation),
+and ``ffmpeg`` (MP3 encoding).  No third-party audio libraries are required
+beyond omnivoice, soundfile, and a system ffmpeg installation.
 """
 
 import io
 import logging
 import os
 import subprocess
-import sys
-import wave
+import tempfile
 from pathlib import Path
 
 import click
-import httpx
+import numpy as np
+from omnivoice import OmniVoice, VoiceClonePrompt
+from scipy.io import wavfile
 
 from ..models import Article, ContentSection, SectionType
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Model registry
-# ---------------------------------------------------------------------------
-
-HF_TTS_API = "https://api-inference.huggingface.co/models/{model_id}"
-
-MODELS = [
-    {
-        "id": "FunAudioLLM/CosyVoice2-0.5B",
-        "name": "CosyVoice2 (FunAudioLLM)",
-        "max_chars": 400,
-    },
-    {
-        "id": "ResembleAI/chatterbox-turbo",
-        "name": "Chatterbox Turbo (ResembleAI)",
-        "max_chars": 400,
-    },
-]
+# Suppress tqdm progress bars from the TTS model internals — we show our own.
+os.environ.setdefault("TQDM_DISABLE", "1")
 
 # ---------------------------------------------------------------------------
-# Model selection
+# Model loading
 # ---------------------------------------------------------------------------
 
+_tts_model: OmniVoice | None = None
+_MAX_CHARS = 2000
 
-def select_model() -> dict:
-    """Prompt the user to choose a TTS model interactively.
 
-    Returns the chosen model dictionary from *MODELS*.
+def _load_tts_model(device: str = "cpu") -> OmniVoice:
+    """Load (or return cached) OmniVoice model.
+
+    The model is downloaded from Hugging Face on first load and cached
+    locally by the Hugging Face hub for subsequent runs.
     """
-    click.echo("\nAvailable TTS models:")
-    for i, model in enumerate(MODELS, start=1):
-        click.echo(f"  {i}. {model['name']}")
-
-    while True:
-        try:
-            choice = click.prompt(
-                "Choose a model",
-                type=click.IntRange(1, len(MODELS)),
-                default=1,
-                show_default=True,
-            )
-            model = MODELS[choice - 1]
-            click.echo(f"→ Using: {model['name']}")
-            return model
-        except click.Abort:
-            click.echo("Cancelled.", err=True)
-            sys.exit(1)
-
-
-# ---------------------------------------------------------------------------
-# Hugging Face Inference API
-# ---------------------------------------------------------------------------
-
-
-def _get_token() -> str:
-    """Read ``HF_TOKEN`` from the environment, exiting with a clear message
-    if it is not set."""
-    token = os.environ.get("HF_TOKEN")
-    if not token:
-        click.echo(
-            "Error: HF_TOKEN environment variable is not set.\n"
-            "Create a Hugging Face token at https://huggingface.co/settings/tokens\n"
-            "and export it:\n\n"
-            "  export HF_TOKEN=hf_...\n",
-            err=True,
+    global _tts_model
+    if _tts_model is None:
+        device_map = device if device == "cpu" else "cuda:0"
+        click.echo(f"Loading OmniVoice model on {device_map}...")
+        _tts_model = OmniVoice.from_pretrained(
+            "k2-fsa/OmniVoice",
+            device_map=device_map,
+            dtype="float16" if device == "cuda" else None,
         )
-        sys.exit(1)
-    return token
+        click.echo("Model loaded.")
+    return _tts_model
 
 
-def generate_audio_chunk(text: str, model_id: str) -> bytes:
-    """Call the Hugging Face Inference API to generate speech for *text*.
+# ---------------------------------------------------------------------------
+# Speech generation
+# ---------------------------------------------------------------------------
+
+
+def _prepare_reference_audio(reference_audio_path: str) -> str:
+    """Convert reference audio to 16kHz mono WAV via ffmpeg.
+
+    OmniVoice expects clean audio input.  This normalises user-supplied
+    reference clips (MP3, stereo, other sample rates) and returns the path
+    to a temporary WAV.
+
+    Returns the original path unchanged if it is already a 16kHz mono WAV.
+    """
+    # Quick probe: if already a 16kHz mono WAV, use as-is
+    try:
+        sr, audio = wavfile.read(reference_audio_path)
+        if sr == 16000 and (audio.ndim == 1 or audio.shape[1] == 1):
+            return reference_audio_path
+    except Exception:
+        pass
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp_path = tmp.name
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i", reference_audio_path,
+        "-ar", "16000",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
+        tmp_path,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30)
+    except FileNotFoundError:
+        raise RuntimeError(
+            "ffmpeg is not installed or not on your PATH."
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "ffmpeg timed out while converting reference audio."
+        ) from None
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace")[-400:]
+        raise RuntimeError(
+            f"ffmpeg failed to convert reference audio:\n{stderr}"
+        )
+
+    return tmp_path
+
+
+def _wav_bytes_to_numpy(wav_bytes: bytes) -> tuple[int, np.ndarray]:
+    """Read WAV bytes and return ``(sample_rate, audio)``."""
+    return wavfile.read(io.BytesIO(wav_bytes))
+
+
+def _numpy_to_wav_bytes(sample_rate: int, audio: np.ndarray) -> bytes:
+    """Write a numpy array as WAV bytes in memory."""
+    buf = io.BytesIO()
+    wavfile.write(buf, sample_rate, audio)
+    return buf.getvalue()
+
+
+def _generate_speech(
+    text: str,
+    model: OmniVoice,
+    voice_clone_prompt: VoiceClonePrompt | None = None,
+    ref_audio_path: str | None = None,
+    ref_text: str = "",
+) -> np.ndarray:
+    """Generate speech for *text* and return a ``(sample_rate, audio)`` tuple.
 
     Args:
         text: The text to convert to speech.
-        model_id: Hugging Face model ID (e.g. ``FunAudioLLM/CosyVoice2-0.5B``).
+        model: A loaded OmniVoice instance.
+        voice_clone_prompt: Pre-computed voice prompt (fast path).
+        ref_audio_path: Path to a reference audio clip for voice cloning.
+        ref_text: Transcription of the reference audio.
 
     Returns:
-        Raw audio bytes (typically WAV).
-
-    Raises:
-        RuntimeError: If the API returns an error or non-200 status.
+        ``(24000, audio)`` — sample rate and numpy array of shape ``(T,)``.
     """
-    token = _get_token()
-    url = HF_TTS_API.format(model_id=model_id)
-
-    logger.info("Calling HF TTS API: %s (text_len=%d)", model_id, len(text))
-
-    try:
-        response = httpx.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json={"inputs": text},
-            timeout=120,
+    if voice_clone_prompt is not None:
+        audio = model.generate(
+            text=text,
+            voice_clone_prompt=voice_clone_prompt,
         )
-    except httpx.HTTPError as exc:
-        raise RuntimeError(
-            f"Failed to reach Hugging Face API: {exc}"
-        ) from exc
-
-    if response.status_code != 200:
-        detail = _extract_error(response)
-        raise RuntimeError(
-            f"Hugging Face API returned {response.status_code} for model "
-            f"'{model_id}':\n{detail}\n\n"
-            f"Tip: The model may not support the serverless Inference API. "
-            f"Try the other model, or check the model page on huggingface.co."
+    else:
+        audio = model.generate(
+            text=text,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
         )
-
-    content_type = response.headers.get("content-type", "")
-    if "audio" not in content_type:
-        logger.warning(
-            "Unexpected content-type: %s (len=%d bytes)",
-            content_type,
-            len(response.content),
-        )
-
-    logger.info("Received %d bytes of audio", len(response.content))
-    return response.content
-
-
-def _extract_error(response: httpx.Response) -> str:
-    """Try to extract a human-readable error from an HF API response."""
-    try:
-        body = response.json()
-        if isinstance(body, dict):
-            return body.get("error", response.text)
-        return response.text
-    except ValueError:
-        return response.text[:500]
+    return 24000, audio[0]
 
 
 # ---------------------------------------------------------------------------
@@ -234,104 +229,65 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Audio helpers (stdlib wave + ffmpeg)
+# Audio helpers (numpy + ffmpeg)
 # ---------------------------------------------------------------------------
 
 
-def _read_wav_params(wav_bytes: bytes) -> tuple[int, int, int]:
-    """Return ``(nchannels, sampwidth, framerate)`` from WAV data in memory."""
-    with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
-        return wf.getnchannels(), wf.getsampwidth(), wf.getframerate()
-
-
-def _make_silence_wav(
+def _make_silence(
     duration_ms: int,
-    nchannels: int,
-    sampwidth: int,
-    framerate: int,
-) -> bytes:
-    """Generate a WAV file in memory containing *duration_ms* of silence."""
-    nframes = int(framerate * duration_ms / 1000)
-    silence_frames = b"\x00" * (nframes * nchannels * sampwidth)
-
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(nchannels)
-        wf.setsampwidth(sampwidth)
-        wf.setframerate(framerate)
-        wf.writeframes(silence_frames)
-    return buf.getvalue()
+    sample_rate: int,
+    dtype: np.dtype = np.float32,
+) -> np.ndarray:
+    """Return a numpy array of silence with the given parameters."""
+    nframes = int(sample_rate * duration_ms / 1000)
+    return np.zeros(nframes, dtype=dtype)
 
 
-def _concat_wavs_with_silence(
-    wav_chunks: list[bytes],
+def _concat_audio(
+    audio_chunks: list[tuple[int, np.ndarray]],
     silence_ms: int = 500,
-) -> bytes:
-    """Concatenate WAV chunks with silence between them, return a single WAV.
+) -> tuple[int, np.ndarray]:
+    """Concatenate (sample_rate, audio) chunks with silence between them.
 
-    All chunks must share the same audio parameters (channels, sample width,
-    framerate).
-
-    Args:
-        wav_chunks: List of WAV file contents as bytes.
-        silence_ms: Milliseconds of silence to insert between chunks.
-
-    Returns:
-        A single concatenated WAV file as bytes.
+    Returns ``(sample_rate, combined_audio)``.
     """
-    if not wav_chunks:
-        raise ValueError("No WAV chunks to concatenate.")
+    if not audio_chunks:
+        raise ValueError("No audio chunks to concatenate.")
 
-    nchannels, sampwidth, framerate = _read_wav_params(wav_chunks[0])
+    sr, first = audio_chunks[0]
+    dtype = first.dtype
+    silence = _make_silence(silence_ms, sr, dtype)
+    parts: list[np.ndarray] = []
 
-    # Read all PCM frames
-    all_frames: list[bytes] = []
-    silence_wav = _make_silence_wav(silence_ms, nchannels, sampwidth, framerate)
-
-    # Read silence frames once
-    with wave.open(io.BytesIO(silence_wav), "rb") as wf:
-        silence_frames = wf.readframes(wf.getnframes())
-
-    for i, wav_chunk in enumerate(wav_chunks):
-        ch_nch, ch_sw, ch_fr = _read_wav_params(wav_chunk)
-        if (ch_nch, ch_sw, ch_fr) != (nchannels, sampwidth, framerate):
+    for i, (ch_sr, ch_audio) in enumerate(audio_chunks):
+        if ch_sr != sr:
             raise ValueError(
-                f"Chunk {i} has different audio parameters: "
-                f"({ch_nch}, {ch_sw}, {ch_fr}) vs "
-                f"({nchannels}, {sampwidth}, {framerate})"
+                f"Chunk {i} has different sample rate: {ch_sr} vs {sr}"
             )
+        parts.append(ch_audio)
+        if i < len(audio_chunks) - 1:
+            parts.append(silence)
 
-        with wave.open(io.BytesIO(wav_chunk), "rb") as wf:
-            all_frames.append(wf.readframes(wf.getnframes()))
-
-        if i < len(wav_chunks) - 1:
-            all_frames.append(silence_frames)
-
-    # Write combined WAV
-    buf = io.BytesIO()
-    with wave.open(buf, "wb") as wf:
-        wf.setnchannels(nchannels)
-        wf.setsampwidth(sampwidth)
-        wf.setframerate(framerate)
-        for frames in all_frames:
-            wf.writeframes(frames)
-    return buf.getvalue()
+    return sr, np.concatenate(parts)
 
 
 def _wav_to_mp3(
-    wav_bytes: bytes,
+    sample_rate: int,
+    audio: np.ndarray,
     output_path: Path,
     title: str = "",
     artist: str = "",
 ) -> None:
-    """Encode WAV data to MP3 via ffmpeg.
+    """Encode a numpy audio array to MP3 via ffmpeg pipe.
 
     Raises:
         RuntimeError: If ffmpeg is not found on PATH.
     """
+    wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
+
     cmd = [
         "ffmpeg",
-        "-y",  # overwrite output
+        "-y",
         "-f", "wav",
         "-i", "pipe:0",
         "-codec:a", "libmp3lame",
@@ -372,56 +328,100 @@ def _wav_to_mp3(
 
 def generate_audiobook(
     article: Article,
-    model: dict,
     output_path: Path,
+    reference_audio_path: str = "",
+    ref_text: str = "",
+    voice_prompt_path: str = "",
+    save_prompt_path: str = "",
+    device: str = "cpu",
 ) -> Path:
     """Convert an article to spoken audio and save as MP3.
 
+    Uses OmniVoice locally — no API key or network call needed
+    after the initial model download.
+
     Args:
         article: The structured article with content sections.
-        model: A model dict from the :data:`MODELS` registry.
         output_path: Where to write the MP3 file.
+        reference_audio_path: Path to a reference audio clip for voice cloning.
+        ref_text: Transcription of the reference audio (optional).
+        voice_prompt_path: Path to a pre-computed ``.pt`` prompt file
+            (skips audio loading / ASR).
+        save_prompt_path: If set, save the computed voice prompt to this
+            ``.pt`` file for reuse in later sessions.
 
     Returns:
         The path to the generated audio file.
     """
-    max_chars = model["max_chars"]
-    model_id = model["id"]
-    chunks = article_text_for_tts(article, max_chars)
+    model = _load_tts_model(device)
+
+    # -- Resolve voice clone prompt -------------------------------------------
+    voice_clone_prompt: VoiceClonePrompt | None = None
+    ref_path: str | None = None
+
+    if voice_prompt_path:
+        click.echo(f"Loading voice clone prompt: {voice_prompt_path}")
+        voice_clone_prompt = VoiceClonePrompt.load(voice_prompt_path)
+    else:
+        if not reference_audio_path:
+            raise ValueError(
+                "Either --reference-audio or --voice-prompt is required."
+            )
+        ref_path = _prepare_reference_audio(reference_audio_path)
+        click.echo("Creating voice clone prompt from reference audio...")
+        voice_clone_prompt = model.create_voice_clone_prompt(
+            ref_audio=ref_path,
+            ref_text=ref_text,
+        )
+        if save_prompt_path:
+            voice_clone_prompt.save(save_prompt_path)
+            click.echo(f"Voice prompt saved: {save_prompt_path}")
+
+    # -- Generate speech for each chunk ---------------------------------------
+    chunks = article_text_for_tts(article, _MAX_CHARS)
 
     if not chunks:
         raise ValueError("Article has no text content to convert to speech.")
 
     click.echo(
         f"\nGenerating audio for {len(chunks)} chunk(s) "
-        f"using {model['name']}..."
+        f"using OmniVoice ({device})..."
     )
 
-    wav_chunks: list[bytes] = []
+    audio_chunks: list[tuple[int, np.ndarray]] = []
 
-    for i, chunk in enumerate(chunks, start=1):
-        preview = chunk[:80] + ("..." if len(chunk) > 80 else "")
-        click.echo(f"  [{i}/{len(chunks)}] {preview}")
+    with click.progressbar(
+        length=len(chunks),
+        label="Generating audio",
+        show_pos=True,
+    ) as bar:
+        for i, chunk in enumerate(chunks, start=1):
+            try:
+                sr, audio = _generate_speech(
+                    chunk,
+                    model,
+                    voice_clone_prompt=voice_clone_prompt,
+                )
+            except Exception as exc:
+                click.echo(f"\nError: {exc}", err=True)
+                if i == 1:
+                    raise RuntimeError(
+                        f"Speech generation failed: {exc}"
+                    ) from exc
+                click.echo(
+                    "Skipping remaining chunks due to error.", err=True
+                )
+                break
 
-        try:
-            raw_audio = generate_audio_chunk(chunk, model_id)
-        except RuntimeError as exc:
-            click.echo(f"Error: {exc}", err=True)
-            if i == 1:
-                raise  # Fail fast on the first chunk
-            click.echo(
-                "Skipping remaining chunks due to API error.", err=True
-            )
-            break
+            audio_chunks.append((sr, audio))
+            bar.update(1)
 
-        wav_chunks.append(raw_audio)
-
-    if not wav_chunks:
+    if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
 
-    # Concatenate WAV chunks with 0.5 s silence between them
+    # Concatenate with 0.5 s silence between chunks
     click.echo("\nConcatenating audio chunks...")
-    combined_wav = _concat_wavs_with_silence(wav_chunks, silence_ms=500)
+    combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=500)
 
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -429,11 +429,19 @@ def generate_audiobook(
     # Encode to MP3
     click.echo("Encoding to MP3...")
     _wav_to_mp3(
-        combined_wav,
+        combined_sr,
+        combined_audio,
         output_path,
         title=article.metadata.title,
         artist=article.metadata.author,
     )
+
+    # Clean up temp reference audio if we created one
+    if ref_path and ref_path != reference_audio_path:
+        try:
+            Path(ref_path).unlink()
+        except OSError:
+            pass
 
     click.echo(f"\n✓ Audiobook generated: {output_path}")
     return output_path

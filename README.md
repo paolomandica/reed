@@ -1,6 +1,6 @@
 # reed
 
-Convert X.com (Twitter) articles and threads to Kindle-compatible EPUBs and MP3 audiobooks.
+Convert X.com (Twitter) articles and threads to EPUBs, Markdown, and MP3 audiobooks.
 
 ## Installation
 
@@ -24,6 +24,84 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 Commands:
   epub        Generate a Kindle-compatible EPUB
   audiobook   Generate an MP3 audiobook using Hugging Face TTS
+  markdown    Generate a Markdown file
+  fetch       Download fully-rendered HTML of an X.com article
+  web         Start a browser-based web interface
+```
+
+### Fetch (download rendered HTML)
+
+For X Articles (long-form posts at `x.com/<user>/article/<id>`) that are JavaScript-rendered,
+use `reed fetch` to download the fully-rendered HTML via a headless browser:
+
+```bash
+# Basic usage — saves x_article_<id>.html in the current directory
+reed fetch "https://x.com/JohannKurtz/article/2077143118524417439"
+
+# Custom output path and text extraction
+reed fetch "https://x.com/..." -o article.html --text article.txt
+
+# With authentication (for articles behind a login wall)
+reed fetch --save-auth cookies.json       # one-time: open browser, log in
+reed fetch --auth cookies.json "https://x.com/..."  # reuse saved session
+
+# Debugging: run browser visibly
+reed fetch --headed "https://x.com/..."
+```
+
+```
+Usage: reed fetch [OPTIONS] [URL]
+
+Options:
+  -o, --output PATH  Output HTML path (default: derived from article ID)
+  --text PATH        Also extract plain text to this file
+  --auth PATH        Playwright storage_state JSON for logged-in sessions
+  --headed           Run browser visibly (for debugging or manual login)
+  --timeout INTEGER  Navigation timeout in milliseconds  [default: 60000]
+  --save-auth PATH   Open browser for manual login, then save cookies to this
+                     path
+  --help             Show this message and exit
+```
+
+**Requirements:** `reed fetch` needs Playwright and a Chromium browser binary:
+
+```bash
+uv sync --extra browser    # or: pip install reed[browser]
+playwright install chromium
+```
+
+### Web Interface
+
+The easiest way to use reed is through the browser:
+
+```bash
+reed web
+```
+
+This starts a local web server and opens `http://127.0.0.1:8080` in your browser. From there you can paste an X.com URL or upload a saved HTML file, pick EPUB, Markdown, audiobook, or rendered HTML, and download the result — no terminal needed.
+
+```
+Usage: reed web [OPTIONS]
+
+Options:
+  --host TEXT          Host address to bind to  [default: 127.0.0.1]
+  --port INTEGER       Port to listen on  [default: 8080]
+  --open / --no-open   Open browser automatically  [default: open]
+  --debug              Enable Flask debug mode
+  --help               Show this message and exit
+```
+
+Examples:
+
+```bash
+# Default: start on localhost:8080, open browser
+reed web
+
+# Custom port, don't auto-open browser
+reed web --port 3000 --no-open
+
+# Bind to all interfaces (accessible from other devices on your network)
+reed web --host 0.0.0.0 --port 8080
 ```
 
 ### EPUB generation
@@ -55,8 +133,27 @@ Options:
   -o, --output PATH    Output EPUB path (default: epubs/<title-slug>.epub)
   --html PATH          Use a local HTML file instead of downloading
   --verbose, -v        Show detailed progress
+  --auth PATH          Playwright storage_state JSON for logged-in sessions
+  --headed             Run browser visibly (for debugging)
   --help               Show this message
 ```
+
+### Markdown generation
+
+Generate a Markdown file from an article:
+
+```bash
+# From a URL
+reed markdown https://x.com/username/status/123456789
+
+# From a saved HTML file
+reed markdown --html article.html
+
+# Custom output path
+reed markdown https://x.com/... -o article.md
+```
+
+Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
@@ -115,7 +212,38 @@ Send the EPUB to your Kindle using the Send-to-Kindle app or email.
 
 ## X Articles (Long-form posts)
 
-X Articles (long-form posts published via the X Premium Articles feature) cannot be downloaded programmatically without a browser. For these:
+X Articles (long-form posts published via the X Premium Articles feature at
+`x.com/<user>/article/<id>`) are JavaScript-rendered and cannot be downloaded
+with a plain HTTP request. reed offers two ways to handle them:
+
+### Automatic (with Playwright)
+
+Install the browser extra and Chromium:
+
+```bash
+uv sync --extra browser
+playwright install chromium
+```
+
+Then `reed epub`, `reed markdown`, and `reed audiobook` will automatically
+use a headless browser for X Article URLs — no manual save step needed:
+
+```bash
+reed epub "https://x.com/user/article/123"
+reed markdown "https://x.com/user/article/123"
+reed audiobook "https://x.com/user/article/123"
+```
+
+If the article is behind a login wall, save your session first:
+
+```bash
+reed fetch --save-auth cookies.json    # log in manually in the opened browser
+reed epub --auth cookies.json "https://x.com/user/article/123"
+```
+
+### Manual (no Playwright)
+
+If you prefer not to install Playwright, you can still save the page manually:
 
 1. Open the article on x.com
 2. Save the page as HTML (File → Save As → Webpage, Complete)

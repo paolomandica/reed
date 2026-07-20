@@ -19,6 +19,8 @@ wheels/
 epubs
 audiobooks
 htmls
+markdowns
+reference_audio
 
 # Mac files
 .DS_Store
