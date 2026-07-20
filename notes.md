@@ -1,0 +1,1 @@
+/plan Now I need you to refactor the repository, use a more generic name than article_to_kindle since the scope is expanding, make the structure of the repo modular such that it will be easy to add additional functionalities in the future.

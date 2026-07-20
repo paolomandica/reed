@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from ebooklib import epub
 
-from .models import Article, ContentSection, SectionType
-from .css import KINDLE_CSS
+from ..models import Article, ContentSection, SectionType
+from ..css import KINDLE_CSS
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ def generate_epub(article: Article, output_path: Path) -> Path:
         book.add_metadata("DC", "date", article.metadata.date)
     if article.metadata.description:
         book.add_metadata("DC", "description", article.metadata.description)
-    book.add_metadata("DC", "publisher", "article-to-kindle")
+    book.add_metadata("DC", "publisher", "reed")
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     book.add_metadata(

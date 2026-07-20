@@ -10,7 +10,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup, Tag, NavigableString
 
-from .models import Article, ArticleMetadata, ContentSection, SectionType
+from ..models import Article, ArticleMetadata, ContentSection, SectionType
 
 logger = logging.getLogger(__name__)
 

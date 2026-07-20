@@ -7,7 +7,7 @@ paragraphs, and other structural elements without needing HTML.
 import re
 import logging
 
-from .models import Article, ArticleMetadata, ContentSection, SectionType
+from ..models import Article, ArticleMetadata, ContentSection, SectionType
 from .download import DownloadedContent
 
 logger = logging.getLogger(__name__)
