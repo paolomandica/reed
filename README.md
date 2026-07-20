@@ -1,6 +1,9 @@
 # reed
 
-Convert X.com (Twitter) articles and threads to EPUBs, Markdown, and MP3 audiobooks.
+Convert online articles to EPUBs, Markdown, and MP3 audiobooks.
+
+Works with X.com (Twitter) articles/threads, Substack newsletters, and
+saved HTML from any long-form article page.
 
 ## Installation
 
@@ -23,7 +26,7 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   epub        Generate a Kindle-compatible EPUB
-  audiobook   Generate an MP3 audiobook using Hugging Face TTS
+  audiobook   Generate an MP3 audiobook using Chatterbox TTS
   markdown    Generate a Markdown file
   fetch       Download fully-rendered HTML of an X.com article
   web         Start a browser-based web interface
@@ -78,7 +81,10 @@ The easiest way to use reed is through the browser:
 reed web
 ```
 
-This starts a local web server and opens `http://127.0.0.1:8080` in your browser. From there you can paste an X.com URL or upload a saved HTML file, pick EPUB, Markdown, audiobook, or rendered HTML, and download the result — no terminal needed.
+This starts a local web server and opens `http://127.0.0.1:8080` in your browser.
+From there you can paste an X.com URL or upload a saved HTML file (X.com,
+Substack, or any article page), pick EPUB, Markdown, audiobook, or rendered
+HTML, and download the result — no terminal needed.
 
 ```
 Usage: reed web [OPTIONS]
@@ -108,13 +114,17 @@ reed web --host 0.0.0.0 --port 8080
 
 #### From a saved HTML file (always works)
 
-Save the X.com article page from your browser (File → Save As → Webpage, Complete), then:
+Save any article page from your browser (File → Save As → Webpage, Complete), then:
 
 ```bash
 reed epub --html article.html
 ```
 
-This produces `epubs/article-title.epub` ready to send to your Kindle.
+This works with X.com articles, Substack newsletters, and most long-form
+article pages. The parser automatically detects the page structure and
+extracts the title, author, date, and body content.
+
+The EPUB is saved to `epubs/article-title.epub` ready to send to your Kindle.
 
 #### From a URL (regular tweets and threads)
 
@@ -122,7 +132,11 @@ This produces `epubs/article-title.epub` ready to send to your Kindle.
 reed epub https://x.com/username/status/123456789
 ```
 
-Works for tweets and threads where the text content is in the tweet body. Uses the public FxTwitter API (no authentication required).
+Works for tweets and threads where the text content is in the tweet body.
+Uses the public FxTwitter API (no authentication required).
+
+> **Note:** Substack and other non-X.com URLs are not directly supported via URL.
+> Save the page as HTML first (`reed epub --html page.html`).
 
 #### Options
 
@@ -146,7 +160,7 @@ Generate a Markdown file from an article:
 # From a URL
 reed markdown https://x.com/username/status/123456789
 
-# From a saved HTML file
+# From a saved HTML file (X.com, Substack, or any article page)
 reed markdown --html article.html
 
 # Custom output path
@@ -157,46 +171,53 @@ Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
-Generate an MP3 audiobook from an article using Hugging Face text-to-speech models.
+Generate an MP3 audiobook from an article using Chatterbox TTS with zero-shot
+voice cloning. Works with X.com articles, Substack newsletters, and any saved
+HTML article page.
 
 #### Prerequisites
 
-1. **HF_TOKEN** environment variable — create a token at https://huggingface.co/settings/tokens
-   ```bash
-   export HF_TOKEN=hf_...
-   ```
-2. **ffmpeg** installed on your system (see [System dependencies](#system-dependencies))
+- **ffmpeg** installed on your system (see [System dependencies](#system-dependencies))
+- A reference audio clip (~5–30s) for voice cloning is optional — the model has a built-in default voice
+- The Chatterbox model is downloaded from Hugging Face on first run and cached locally — no API key needed.
 
-#### Usage
+#### Quick start
 
 ```bash
-# From a saved HTML file
+# Use the built-in default voice (no reference audio needed)
 reed audiobook --html article.html
 
-# From a URL
-reed audiobook https://x.com/username/status/123456789
+# Voice cloning with a reference clip
+reed audiobook --html article.html -r voice.wav
+
+# Cache the voice prompt for faster subsequent runs
+reed audiobook --html article.html -r voice.wav --save-prompt my_voice.pt
+reed audiobook --html article.html -p my_voice.pt
 
 # Custom output path
 reed audiobook -o my-article.mp3 --html article.html
-
-# Verbose output
-reed audiobook -v --html article.html
 ```
 
-#### Model selection
-
-When you run the `audiobook` command, you'll be prompted to choose a TTS model:
+#### Options
 
 ```
-Available TTS models:
-  1. CosyVoice2 (FunAudioLLM)
-  2. Chatterbox Turbo (ResembleAI)
-Choose a model [1]:
+Usage: reed audiobook [OPTIONS] [URL]
+
+Options:
+  -o, --output PATH           Output audio file path (default: audiobooks/<title-slug>.mp3)
+  --html PATH                 Use a local HTML file instead of downloading
+  -r, --reference-audio PATH  Reference audio clip for voice cloning (optional)
+  -p, --voice-prompt PATH     Pre-computed voice prompt (.pt) — skips audio loading / ASR
+  --save-prompt PATH          Save the computed voice prompt to this .pt file for later reuse
+  --device [cpu|cuda|mps]     Device to run the TTS model on  [default: mps]
+  -v, --verbose               Show detailed progress
+  --max-sections INTEGER      Only process the first N sections (0 = all) — quick-test shortcut
+  --auth PATH                 Playwright storage_state JSON for logged-in sessions
+  --headed                    Run browser visibly (for debugging)
+  --help                      Show this message
 ```
 
-Just enter `1` or `2` — no need to type the full model name.
-
-The article text is automatically split into chunks that respect each model's character limit. Audio chunks are concatenated with a 0.5-second pause between sections and exported as a 64 kbps MP3.
+The article text is automatically split into chunks. Audio chunks are concatenated with a 0.5-second pause between sections and exported as a 64 kbps MP3.
 
 Default output path: `audiobooks/<title-slug>.mp3`
 
@@ -209,6 +230,29 @@ Generated EPUBs include:
 - Title page with author and date
 
 Send the EPUB to your Kindle using the Send-to-Kindle app or email.
+
+## Supported Sources
+
+### X.com (Twitter)
+
+Tweets and threads are downloaded via the public FxTwitter API. X Articles
+(long-form posts at `x.com/<user>/article/<id>`) are JavaScript-rendered and
+require the Playwright browser fallback.
+
+### Substack and other article pages
+
+Save the page as HTML from your browser (File → Save As → Webpage, Complete),
+then use `--html`:
+
+```bash
+reed epub --html young-adults-are-poor.html
+reed markdown --html young-adults-are-poor.html
+reed audiobook --html young-adults-are-poor.html
+```
+
+The HTML parser uses heuristics to find the article body, title, author, and
+date — it works with Substack, personal blogs, and most CMS-generated article
+pages without site-specific selectors.
 
 ## X Articles (Long-form posts)
 

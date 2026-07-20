@@ -1,6 +1,7 @@
 """Input sources — each produces an :class:`Article <reed.models.Article>`."""
 
 from .html_file import extract_from_html
+from .markdown_file import extract_from_markdown
 from .download import download_tweet
 from .extract import extract_content
 
@@ -26,4 +27,4 @@ def extract_from_url(url: str):
     return extract_content(downloaded)
 
 
-__all__ = ["extract_from_url", "extract_from_html"]
+__all__ = ["extract_from_url", "extract_from_html", "extract_from_markdown"]

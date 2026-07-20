@@ -1,54 +1,197 @@
-"""Generate audiobooks from articles using OmniVoice TTS model.
+"""Generate audiobooks from articles using ResembleAI Chatterbox TTS.
 
-Audio processing uses ``soundfile`` (WAV I/O), ``numpy`` (concatenation),
-and ``ffmpeg`` (MP3 encoding).  No third-party audio libraries are required
-beyond omnivoice, soundfile, and a system ffmpeg installation.
+Install::
+
+    pip install chatterbox-tts soundfile click numpy
+
+Audio I/O uses ``soundfile`` (WAV), ``numpy`` (concatenation), and system
+``ffmpeg`` (MP3).  The model is loaded from Hugging Face
+``ResembleAI/chatterbox`` via ``ChatterboxTTS.from_pretrained``.
 """
+
+from __future__ import annotations
 
 import io
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 
 import click
 import numpy as np
-from omnivoice import OmniVoice, VoiceClonePrompt
-from scipy.io import wavfile
+import soundfile as sf
+import torch
+from chatterbox.tts import ChatterboxTTS
 
-from ..models import Article, ContentSection, SectionType
+from ..models import Article, SectionType
 
 logger = logging.getLogger(__name__)
 
-# Suppress tqdm progress bars from the TTS model internals — we show our own.
 os.environ.setdefault("TQDM_DISABLE", "1")
+
+# ---------------------------------------------------------------------------
+# Constants / model cache
+# ---------------------------------------------------------------------------
+
+_tts_model: ChatterboxTTS | None = None
+_MAX_CHARS = 500  # Chatterbox is happiest with shorter turns
+_REF_SAMPLE_RATE = 16_000
+
+_SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
+
 
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
 
-_tts_model: OmniVoice | None = None
-_MAX_CHARS = 2000
+
+def _resolve_device(device: str) -> str:
+    """Map a user-facing device string to what Chatterbox expects."""
+    d = device.lower().strip()
+    if d in {"cpu", "mps"}:
+        return d
+    if d in {"cuda", "gpu"}:
+        return "cuda"
+    if d.startswith("cuda:"):
+        # Chatterbox uses a single "cuda" device string; pin via CUDA_VISIBLE_DEVICES
+        # if you need a non-zero GPU index.
+        if d != "cuda:0":
+            logger.warning(
+                "Chatterbox uses device='cuda'; for multi-GPU pin "
+                "CUDA_VISIBLE_DEVICES (requested %s).",
+                d,
+            )
+        return "cuda"
+    raise ValueError(f"Unsupported device {device!r}. Use cpu, cuda, or mps.")
 
 
-def _load_tts_model(device: str = "cpu") -> OmniVoice:
-    """Load (or return cached) OmniVoice model.
+def _load_tts_model(device: str = "mps") -> ChatterboxTTS:
+    """Load (or return cached) Chatterbox TTS model.
 
-    The model is downloaded from Hugging Face on first load and cached
-    locally by the Hugging Face hub for subsequent runs.
+    Weights are downloaded from Hugging Face ``ResembleAI/chatterbox`` on
+    first load and cached by the hub thereafter.
     """
     global _tts_model
     if _tts_model is None:
-        device_map = device if device == "cpu" else "cuda:0"
-        click.echo(f"Loading OmniVoice model on {device_map}...")
-        _tts_model = OmniVoice.from_pretrained(
-            "k2-fsa/OmniVoice",
-            device_map=device_map,
-            dtype="float16" if device == "cuda" else None,
-        )
-        click.echo("Model loaded.")
+        device_str = _resolve_device(device)
+        # Fall back to CPU if requested device is MPS but unavailable
+        if device_str == "mps" and not getattr(torch.backends.mps, "is_available", lambda: False)():
+            click.echo("MPS not available — falling back to CPU.")
+            device_str = "cpu"
+        click.echo(f"Loading Chatterbox TTS on {device_str}...")
+        _tts_model = ChatterboxTTS.from_pretrained(device=device_str)
+        click.echo(f"Model loaded (sample rate={_tts_model.sr} Hz).")
     return _tts_model
+
+
+# ---------------------------------------------------------------------------
+# Reference audio / voice conditionals
+# ---------------------------------------------------------------------------
+
+
+def _is_wav_usable(path: str) -> bool:
+    """True if *path* is a readable mono-or-stereo WAV (any rate)."""
+    try:
+        info = sf.info(path)
+    except Exception:
+        return False
+    return info.frames > 0 and info.format == "WAV"
+
+
+def _prepare_reference_audio(reference_audio_path: str) -> tuple[str, bool]:
+    """Ensure reference audio is a WAV Chatterbox/librosa can load cleanly.
+
+    Chatterbox loads the prompt with librosa internally.  Converting exotic
+    containers (m4a, etc.) up front avoids opaque load failures.
+
+    Returns:
+        ``(path, is_temporary)`` — delete *path* when *is_temporary* is True.
+    """
+    if _is_wav_usable(reference_audio_path):
+        return reference_audio_path, False
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".wav")
+    os.close(fd)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        reference_audio_path,
+        "-ar",
+        str(_REF_SAMPLE_RATE),
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        tmp_path,
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30)
+    except FileNotFoundError:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg is not installed or not on your PATH.") from None
+    except subprocess.TimeoutExpired:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise RuntimeError(
+            "ffmpeg timed out while converting reference audio."
+        ) from None
+
+    if proc.returncode != 0:
+        Path(tmp_path).unlink(missing_ok=True)
+        stderr = proc.stderr.decode("utf-8", errors="replace")[-400:]
+        raise RuntimeError(f"ffmpeg failed to convert reference audio:\n{stderr}")
+
+    return tmp_path, True
+
+
+def _prepare_voice(
+    model: ChatterboxTTS,
+    *,
+    reference_audio_path: str = "",
+    voice_prompt_path: str = "",
+    save_prompt_path: str = "",
+    exaggeration: float = 0.5,
+) -> None:
+    """Attach voice conditionals to *model* (mutates ``model.conds``).
+
+    Prefer a saved ``.pt`` conditionals file when available; otherwise build
+    them from *reference_audio_path* once via ``prepare_conditionals``.
+    """
+    if voice_prompt_path:
+        click.echo(f"Loading voice conditionals: {voice_prompt_path}")
+        # Conditionals lives on the chatterbox.tts module
+        from chatterbox.tts import Conditionals
+
+        model.conds = Conditionals.load(
+            voice_prompt_path,
+            map_location=model.device,
+        ).to(model.device)
+        return
+
+    if not reference_audio_path:
+        # Built-in default voice shipped with the checkpoint (conds.pt)
+        if model.conds is None:
+            raise ValueError(
+                "Either reference_audio_path or voice_prompt_path is required "
+                "(and this checkpoint has no built-in default voice)."
+            )
+        click.echo("Using built-in default Chatterbox voice.")
+        return
+
+    ref_path, is_temp = _prepare_reference_audio(reference_audio_path)
+    try:
+        click.echo("Preparing voice conditionals from reference audio...")
+        model.prepare_conditionals(ref_path, exaggeration=exaggeration)
+    finally:
+        if is_temp:
+            Path(ref_path).unlink(missing_ok=True)
+
+    if save_prompt_path and model.conds is not None:
+        model.conds.save(Path(save_prompt_path))
+        click.echo(f"Voice conditionals saved: {save_prompt_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -56,98 +199,44 @@ def _load_tts_model(device: str = "cpu") -> OmniVoice:
 # ---------------------------------------------------------------------------
 
 
-def _prepare_reference_audio(reference_audio_path: str) -> str:
-    """Convert reference audio to 16kHz mono WAV via ffmpeg.
-
-    OmniVoice expects clean audio input.  This normalises user-supplied
-    reference clips (MP3, stereo, other sample rates) and returns the path
-    to a temporary WAV.
-
-    Returns the original path unchanged if it is already a 16kHz mono WAV.
-    """
-    # Quick probe: if already a 16kHz mono WAV, use as-is
-    try:
-        sr, audio = wavfile.read(reference_audio_path)
-        if sr == 16000 and (audio.ndim == 1 or audio.shape[1] == 1):
-            return reference_audio_path
-    except Exception:
-        pass
-
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    tmp_path = tmp.name
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i", reference_audio_path,
-        "-ar", "16000",
-        "-ac", "1",
-        "-c:a", "pcm_s16le",
-        tmp_path,
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=30)
-    except FileNotFoundError:
-        raise RuntimeError(
-            "ffmpeg is not installed or not on your PATH."
-        ) from None
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            "ffmpeg timed out while converting reference audio."
-        ) from None
-
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace")[-400:]
-        raise RuntimeError(
-            f"ffmpeg failed to convert reference audio:\n{stderr}"
-        )
-
-    return tmp_path
-
-
-def _wav_bytes_to_numpy(wav_bytes: bytes) -> tuple[int, np.ndarray]:
-    """Read WAV bytes and return ``(sample_rate, audio)``."""
-    return wavfile.read(io.BytesIO(wav_bytes))
-
-
-def _numpy_to_wav_bytes(sample_rate: int, audio: np.ndarray) -> bytes:
-    """Write a numpy array as WAV bytes in memory."""
-    buf = io.BytesIO()
-    wavfile.write(buf, sample_rate, audio)
-    return buf.getvalue()
+def _tensor_to_numpy(wav: torch.Tensor | np.ndarray) -> np.ndarray:
+    """Convert Chatterbox output to mono float32 numpy."""
+    if isinstance(wav, torch.Tensor):
+        wav = wav.detach().float().cpu().numpy()
+    x = np.asarray(wav, dtype=np.float32)
+    if x.ndim > 1:
+        # Chatterbox returns shape (1, T)
+        x = np.squeeze(x, axis=0) if x.shape[0] == 1 else x.mean(axis=0)
+    return x.reshape(-1)
 
 
 def _generate_speech(
     text: str,
-    model: OmniVoice,
-    voice_clone_prompt: VoiceClonePrompt | None = None,
-    ref_audio_path: str | None = None,
-    ref_text: str = "",
-) -> np.ndarray:
-    """Generate speech for *text* and return a ``(sample_rate, audio)`` tuple.
-
-    Args:
-        text: The text to convert to speech.
-        model: A loaded OmniVoice instance.
-        voice_clone_prompt: Pre-computed voice prompt (fast path).
-        ref_audio_path: Path to a reference audio clip for voice cloning.
-        ref_text: Transcription of the reference audio.
+    model: ChatterboxTTS,
+    *,
+    exaggeration: float = 0.5,
+    cfg_weight: float = 0.5,
+    temperature: float = 0.8,
+    repetition_penalty: float = 1.2,
+) -> tuple[int, np.ndarray]:
+    """Generate speech for *text* using conditionals already on *model*.
 
     Returns:
-        ``(24000, audio)`` — sample rate and numpy array of shape ``(T,)``.
+        ``(sample_rate, audio)`` with audio shape ``(T,)``.
     """
-    if voice_clone_prompt is not None:
-        audio = model.generate(
-            text=text,
-            voice_clone_prompt=voice_clone_prompt,
-        )
-    else:
-        audio = model.generate(
-            text=text,
-            ref_audio=ref_audio_path,
-            ref_text=ref_text,
-        )
-    return 24000, audio[0]
+    if model.conds is None:
+        raise RuntimeError("Voice conditionals are not set. Call _prepare_voice first.")
+
+    wav = model.generate(
+        text,
+        exaggeration=exaggeration,
+        cfg_weight=cfg_weight,
+        temperature=temperature,
+        repetition_penalty=repetition_penalty,
+        # Do not pass audio_prompt_path here — conditionals are already prepared
+        # so we avoid re-encoding the reference on every chunk.
+    )
+    return int(model.sr), _tensor_to_numpy(wav)
 
 
 # ---------------------------------------------------------------------------
@@ -156,10 +245,10 @@ def _generate_speech(
 
 
 def article_text_for_tts(article: Article, max_chars: int) -> list[str]:
-    """Build a list of text chunks suitable for TTS from an article's sections.
+    """Build TTS text chunks from an article's sections.
 
-    Each chunk respects *max_chars* and preserves section boundaries —
-    a chunk always starts at a section boundary (heading, paragraph, etc.).
+    Each chunk respects *max_chars* and starts at a section boundary when
+    possible (heading, paragraph, etc.).
     """
     chunks: list[str] = []
     current: list[str] = []
@@ -177,54 +266,101 @@ def article_text_for_tts(article: Article, max_chars: int) -> list[str]:
         if not text:
             continue
 
-        # Headings get a slight vocal emphasis via natural pause (period)
         if section.type in (SectionType.HEADING, SectionType.TITLE):
-            prefix = f"{text}." if not text.endswith((".", "!", "?")) else text
+            prefix = text if text.endswith((".", "!", "?", "…")) else f"{text}."
         elif section.type == SectionType.BLOCKQUOTE:
             prefix = f"Quote: {text}"
         else:
             prefix = text
 
-        # If this section alone exceeds max_chars, split it further
         if len(prefix) > max_chars:
             _flush()
-            for sub in _split_long_text(prefix, max_chars):
-                chunks.append(sub)
+            chunks.extend(_split_long_text(prefix, max_chars))
             continue
 
-        # Start a new chunk if appending would overflow
-        if current_len + len(prefix) + 1 > max_chars:
+        if current and current_len + len(prefix) + 1 > max_chars:
             _flush()
 
         current.append(prefix)
-        current_len += len(prefix) + 1  # +1 for the space join
+        current_len += len(prefix) + (1 if current_len else 0)
 
     _flush()
     return chunks
 
 
 def _split_long_text(text: str, max_chars: int) -> list[str]:
-    """Split a single long text into sentence-aware chunks ≤ *max_chars*."""
-    sentences = [s.strip() for s in text.replace("\n", " ").split(". ")]
+    """Split long text into sentence-aware chunks ≤ *max_chars*."""
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return [text]
+
+    raw_parts = [p.strip() for p in _SENTENCE_RE.split(text) if p and p.strip()]
+    sentences: list[str] = []
+    for part in raw_parts:
+        if sentences and part in {".", "!", "?", "…"}:
+            sentences[-1] = sentences[-1] + part
+        else:
+            sentences.append(part)
+
+    if not sentences:
+        return _split_by_words(text, max_chars)
+
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0
 
-    for i, sentence in enumerate(sentences):
-        # Re-add the period except on the last sentence
-        s = sentence if i == len(sentences) - 1 or sentence.endswith(".") else sentence + "."
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            if current:
+                chunks.append(" ".join(current))
+                current, current_len = [], 0
+            chunks.extend(_split_by_words(sentence, max_chars))
+            continue
 
-        if current_len + len(s) + 1 > max_chars and current:
+        extra = len(sentence) + (1 if current else 0)
+        if current and current_len + extra > max_chars:
             chunks.append(" ".join(current))
-            current = []
-            current_len = 0
+            current, current_len = [], 0
+            extra = len(sentence)
 
-        current.append(s)
-        current_len += len(s) + 1
+        current.append(sentence)
+        current_len += extra
 
     if current:
         chunks.append(" ".join(current))
+    return chunks
 
+
+def _split_by_words(text: str, max_chars: int) -> list[str]:
+    """Last-resort word wrap so no chunk exceeds *max_chars*."""
+    words = text.split()
+    if not words:
+        return []
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for word in words:
+        if len(word) > max_chars:
+            if current:
+                chunks.append(" ".join(current))
+                current, current_len = [], 0
+            for i in range(0, len(word), max_chars):
+                chunks.append(word[i : i + max_chars])
+            continue
+
+        extra = len(word) + (1 if current else 0)
+        if current and current_len + extra > max_chars:
+            chunks.append(" ".join(current))
+            current, current_len = [], 0
+            extra = len(word)
+
+        current.append(word)
+        current_len += extra
+
+    if current:
+        chunks.append(" ".join(current))
     return chunks
 
 
@@ -236,39 +372,53 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
 def _make_silence(
     duration_ms: int,
     sample_rate: int,
-    dtype: np.dtype = np.float32,
+    dtype: np.dtype = np.dtype(np.float32),
 ) -> np.ndarray:
-    """Return a numpy array of silence with the given parameters."""
-    nframes = int(sample_rate * duration_ms / 1000)
+    nframes = max(0, int(sample_rate * duration_ms / 1000))
     return np.zeros(nframes, dtype=dtype)
+
+
+def _as_float32_mono(audio: np.ndarray) -> np.ndarray:
+    x = np.asarray(audio)
+    if x.ndim > 1:
+        x = x.mean(axis=-1)
+    if np.issubdtype(x.dtype, np.integer):
+        max_abs = float(np.iinfo(x.dtype).max) or 1.0
+        x = x.astype(np.float32) / max_abs
+    else:
+        x = x.astype(np.float32, copy=False)
+    return x
 
 
 def _concat_audio(
     audio_chunks: list[tuple[int, np.ndarray]],
     silence_ms: int = 500,
 ) -> tuple[int, np.ndarray]:
-    """Concatenate (sample_rate, audio) chunks with silence between them.
-
-    Returns ``(sample_rate, combined_audio)``.
-    """
     if not audio_chunks:
         raise ValueError("No audio chunks to concatenate.")
 
-    sr, first = audio_chunks[0]
-    dtype = first.dtype
-    silence = _make_silence(silence_ms, sr, dtype)
+    sr0, _ = audio_chunks[0]
+    silence = _make_silence(silence_ms, sr0, np.float32)
     parts: list[np.ndarray] = []
 
     for i, (ch_sr, ch_audio) in enumerate(audio_chunks):
-        if ch_sr != sr:
-            raise ValueError(
-                f"Chunk {i} has different sample rate: {ch_sr} vs {sr}"
-            )
-        parts.append(ch_audio)
-        if i < len(audio_chunks) - 1:
+        if ch_sr != sr0:
+            raise ValueError(f"Chunk {i} has different sample rate: {ch_sr} vs {sr0}")
+        parts.append(_as_float32_mono(ch_audio))
+        if i < len(audio_chunks) - 1 and silence_ms > 0:
             parts.append(silence)
 
-    return sr, np.concatenate(parts)
+    return sr0, np.concatenate(parts)
+
+
+def _numpy_to_wav_bytes(sample_rate: int, audio: np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    sf.write(buf, _as_float32_mono(audio), sample_rate, format="WAV")
+    return buf.getvalue()
+
+
+def _ffmpeg_metadata_value(value: str) -> str:
+    return re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
 
 
 def _wav_to_mp3(
@@ -277,28 +427,30 @@ def _wav_to_mp3(
     output_path: Path,
     title: str = "",
     artist: str = "",
+    bitrate: str = "64k",
 ) -> None:
-    """Encode a numpy audio array to MP3 via ffmpeg pipe.
-
-    Raises:
-        RuntimeError: If ffmpeg is not found on PATH.
-    """
     wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
 
     cmd = [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
         "-y",
-        "-f", "wav",
-        "-i", "pipe:0",
-        "-codec:a", "libmp3lame",
-        "-b:a", "64k",
+        "-f",
+        "wav",
+        "-i",
+        "pipe:0",
+        "-codec:a",
+        "libmp3lame",
+        "-b:a",
+        bitrate,
     ]
     if title:
-        cmd += ["-metadata", f"title={title}"]
+        cmd += ["-metadata", f"title={_ffmpeg_metadata_value(title)}"]
     if artist:
-        cmd += ["-metadata", f"artist={artist}"]
-    cmd += ["-metadata", "album=reed"]
-    cmd.append(str(output_path))
+        cmd += ["-metadata", f"artist={_ffmpeg_metadata_value(artist)}"]
+    cmd += ["-metadata", "album=reed", str(output_path)]
 
     try:
         proc = subprocess.run(
@@ -311,7 +463,8 @@ def _wav_to_mp3(
         raise RuntimeError(
             "ffmpeg is not installed or not on your PATH.\n"
             "Install it with:  brew install ffmpeg   (macOS)\n"
-            "                  apt install ffmpeg     (Linux)"
+            "                  apt install ffmpeg     (Linux)\n"
+            "                  winget install ffmpeg  (Windows)"
         ) from None
     except subprocess.TimeoutExpired:
         raise RuntimeError("ffmpeg timed out while encoding audio.") from None
@@ -330,65 +483,68 @@ def generate_audiobook(
     article: Article,
     output_path: Path,
     reference_audio_path: str = "",
-    ref_text: str = "",
     voice_prompt_path: str = "",
     save_prompt_path: str = "",
     device: str = "cpu",
+    *,
+    max_chars: int = _MAX_CHARS,
+    silence_ms: int = 500,
+    exaggeration: float = 0.5,
+    cfg_weight: float = 0.5,
+    temperature: float = 0.8,
+    repetition_penalty: float = 1.2,
+    mp3_bitrate: str = "64k",
 ) -> Path:
     """Convert an article to spoken audio and save as MP3.
 
-    Uses OmniVoice locally — no API key or network call needed
+    Uses local Chatterbox (``ResembleAI/chatterbox``) — no API key needed
     after the initial model download.
 
     Args:
-        article: The structured article with content sections.
-        output_path: Where to write the MP3 file.
-        reference_audio_path: Path to a reference audio clip for voice cloning.
-        ref_text: Transcription of the reference audio (optional).
-        voice_prompt_path: Path to a pre-computed ``.pt`` prompt file
-            (skips audio loading / ASR).
-        save_prompt_path: If set, save the computed voice prompt to this
-            ``.pt`` file for reuse in later sessions.
+        article: Structured article with content sections.
+        output_path: Destination MP3 path.
+        reference_audio_path: Reference clip for zero-shot voice cloning
+            (~5–30 s of clean speech). Optional if the checkpoint has a
+            built-in default voice or *voice_prompt_path* is set.
+        voice_prompt_path: Precomputed conditionals ``.pt`` file (from a
+            previous ``save_prompt_path`` run).
+        save_prompt_path: If set, save prepared conditionals here for reuse.
+        device: ``cpu``, ``cuda``, or ``mps``.
+        max_chars: Max characters per TTS chunk (keep modest; Chatterbox
+            generation is token-capped).
+        silence_ms: Silence inserted between chunks.
+        exaggeration: Emotion / intensity (default ``0.5``; try ``~0.7``
+            for more dramatic delivery).
+        cfg_weight: Classifier-free guidance (default ``0.5``; lower ~``0.3``
+            if the reference speaker is fast or speech feels rushed).
+        temperature: Sampling temperature (default ``0.8``).
+        repetition_penalty: Token repetition penalty (default ``1.2``).
+        mp3_bitrate: LAME bitrate string, e.g. ``64k``.
 
     Returns:
-        The path to the generated audio file.
+        Path to the generated MP3.
     """
     model = _load_tts_model(device)
 
-    # -- Resolve voice clone prompt -------------------------------------------
-    voice_clone_prompt: VoiceClonePrompt | None = None
-    ref_path: str | None = None
+    _prepare_voice(
+        model,
+        reference_audio_path=reference_audio_path,
+        voice_prompt_path=voice_prompt_path,
+        save_prompt_path=save_prompt_path,
+        exaggeration=exaggeration,
+    )
 
-    if voice_prompt_path:
-        click.echo(f"Loading voice clone prompt: {voice_prompt_path}")
-        voice_clone_prompt = VoiceClonePrompt.load(voice_prompt_path)
-    else:
-        if not reference_audio_path:
-            raise ValueError(
-                "Either --reference-audio or --voice-prompt is required."
-            )
-        ref_path = _prepare_reference_audio(reference_audio_path)
-        click.echo("Creating voice clone prompt from reference audio...")
-        voice_clone_prompt = model.create_voice_clone_prompt(
-            ref_audio=ref_path,
-            ref_text=ref_text,
-        )
-        if save_prompt_path:
-            voice_clone_prompt.save(save_prompt_path)
-            click.echo(f"Voice prompt saved: {save_prompt_path}")
-
-    # -- Generate speech for each chunk ---------------------------------------
-    chunks = article_text_for_tts(article, _MAX_CHARS)
-
+    chunks = article_text_for_tts(article, max_chars)
     if not chunks:
         raise ValueError("Article has no text content to convert to speech.")
 
     click.echo(
         f"\nGenerating audio for {len(chunks)} chunk(s) "
-        f"using OmniVoice ({device})..."
+        f"using Chatterbox ({_resolve_device(device)})..."
     )
 
     audio_chunks: list[tuple[int, np.ndarray]] = []
+    failed = False
 
     with click.progressbar(
         length=len(chunks),
@@ -400,17 +556,24 @@ def generate_audiobook(
                 sr, audio = _generate_speech(
                     chunk,
                     model,
-                    voice_clone_prompt=voice_clone_prompt,
+                    exaggeration=exaggeration,
+                    cfg_weight=cfg_weight,
+                    temperature=temperature,
+                    repetition_penalty=repetition_penalty,
                 )
             except Exception as exc:
-                click.echo(f"\nError: {exc}", err=True)
-                if i == 1:
-                    raise RuntimeError(
-                        f"Speech generation failed: {exc}"
-                    ) from exc
+                logger.exception("TTS failed on chunk %s/%s", i, len(chunks))
                 click.echo(
-                    "Skipping remaining chunks due to error.", err=True
+                    f"\nError on chunk {i}/{len(chunks)}: {exc}",
+                    err=True,
                 )
+                if i == 1:
+                    raise RuntimeError(f"Speech generation failed: {exc}") from exc
+                click.echo(
+                    "Stopping early; writing partial audiobook.",
+                    err=True,
+                )
+                failed = True
                 break
 
             audio_chunks.append((sr, audio))
@@ -419,29 +582,24 @@ def generate_audiobook(
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
 
-    # Concatenate with 0.5 s silence between chunks
     click.echo("\nConcatenating audio chunks...")
-    combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=500)
+    combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=silence_ms)
 
-    # Ensure output directory exists
+    output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Encode to MP3
     click.echo("Encoding to MP3...")
+    title = getattr(article.metadata, "title", "") or ""
+    artist = getattr(article.metadata, "author", "") or ""
     _wav_to_mp3(
         combined_sr,
         combined_audio,
         output_path,
-        title=article.metadata.title,
-        artist=article.metadata.author,
+        title=title,
+        artist=artist,
+        bitrate=mp3_bitrate,
     )
 
-    # Clean up temp reference audio if we created one
-    if ref_path and ref_path != reference_audio_path:
-        try:
-            Path(ref_path).unlink()
-        except OSError:
-            pass
-
-    click.echo(f"\n✓ Audiobook generated: {output_path}")
+    status = "partial audiobook" if failed else "Audiobook"
+    click.echo(f"\n✓ {status} generated: {output_path}")
     return output_path

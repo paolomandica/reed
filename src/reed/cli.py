@@ -8,28 +8,29 @@ from pathlib import Path
 
 import click
 
-from .inputs import extract_from_url, extract_from_html
+from .inputs import extract_from_html, extract_from_markdown, extract_from_url
 from .inputs.browser import (
+    derive_filename,
     download_article_html,
     extract_text_from_html,
-    derive_filename,
-    save_auth as _browser_save_auth,
 )
-from .outputs import generate_epub, generate_audiobook, generate_markdown
+from .inputs.browser import save_auth as _browser_save_auth
 from .models import Article
+from .outputs import generate_audiobook, generate_epub, generate_markdown
 
 logger = logging.getLogger(__name__)
 
 
 def _resolve_article(
     url: str | None,
-    html_file: Path | None,
+    html_file: Path | None = None,
+    md_file: Path | None = None,
     browser_auth: Path | None = None,
     browser_headed: bool = False,
 ) -> Article:
-    """Resolve an Article from either a URL or a local HTML file.
+    """Resolve an Article from a URL, a local HTML file, or a Markdown file.
 
-    Exactly one of *url* or *html_file* must be provided.
+    Exactly one of *url*, *html_file*, or *md_file* must be provided.
 
     For X Article URLs (long-form posts), automatically falls back to
     Playwright-based browser download if the API-based approach cannot
@@ -38,6 +39,10 @@ def _resolve_article(
     if html_file:
         logger.info("Extracting from HTML file: %s", html_file)
         return extract_from_html(html_file)
+
+    if md_file:
+        logger.info("Extracting from Markdown file: %s", md_file)
+        return extract_from_markdown(md_file)
 
     if url:
         logger.info("Downloading: %s", url)
@@ -62,7 +67,7 @@ def _resolve_article(
             raise
 
     click.echo(
-        "Error: Please provide either a URL or --html flag.\n\n"
+        "Error: Please provide either a URL, --html flag, or --md flag.\n\n"
         "Try: reed --help",
         err=True,
     )
@@ -119,7 +124,7 @@ def main(ctx: click.Context) -> None:
     \b
     Commands:
       epub        Generate a Kindle-compatible EPUB
-      audiobook   Generate an MP3 audiobook using OmniVoice
+      audiobook   Generate an MP3 audiobook using Chatterbox
       markdown    Generate a Markdown file
       fetch       Download fully-rendered HTML of an X.com article
       web         Start a browser-based web interface
@@ -128,10 +133,12 @@ def main(ctx: click.Context) -> None:
     Examples:
       reed epub https://x.com/user/status/123
       reed epub --html saved_article.html
+      reed epub --md article.md
       reed markdown https://x.com/user/status/123
       reed markdown --html saved_article.html
-      reed audiobook --html saved_article.html -r voice.wav -t "transcription"
-      reed audiobook -o out.mp3 -r voice.wav -t "transcription" https://x.com/...
+      reed audiobook --html saved_article.html
+      reed audiobook --md article.md
+      reed audiobook -o out.mp3 https://x.com/...
       reed fetch https://x.com/user/article/123
       reed fetch --save-auth cookies.json
       reed web
@@ -157,6 +164,12 @@ def main(ctx: click.Context) -> None:
     type=click.Path(exists=True, path_type=Path),
     help="Use a local HTML file instead of downloading",
 )
+@click.option(
+    "--md",
+    "md_file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Use a local Markdown file instead of downloading",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 @click.option(
     "--auth",
@@ -174,6 +187,7 @@ def epub_cmd(
     url: str | None,
     output: Path | None,
     html_file: Path | None,
+    md_file: Path | None,
     verbose: bool,
     browser_auth: Path | None = None,
     browser_headed: bool = False,
@@ -192,11 +206,19 @@ def epub_cmd(
     If behind a login wall, save your session first:
         reed fetch --save-auth cookies.json
         reed epub --auth cookies.json https://x.com/...
+
+    \b
+    Use a local file instead of downloading:
+        reed epub --html article.html
+        reed epub --md article.md
     """
     _setup_logging(verbose)
 
     try:
-        article = _resolve_article(url, html_file, browser_auth, browser_headed)
+        article = _resolve_article(
+            url, html_file=html_file, md_file=md_file,
+            browser_auth=browser_auth, browser_headed=browser_headed,
+        )
 
         logger.info(
             "Article: title=%r, author=%r, sections=%d",
@@ -247,11 +269,17 @@ def epub_cmd(
     help="Use a local HTML file instead of downloading",
 )
 @click.option(
+    "--md",
+    "md_file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Use a local Markdown file instead of downloading",
+)
+@click.option(
     "-r",
     "--reference-audio",
     "reference_audio",
     type=click.Path(exists=True, path_type=Path),
-    help="Reference audio clip for voice cloning",
+    help="Reference audio clip for voice cloning (optional — model has a built-in default voice)",
 )
 @click.option(
     "-p",
@@ -267,17 +295,9 @@ def epub_cmd(
     help="Save the computed voice prompt to this .pt file for later reuse",
 )
 @click.option(
-    "-t",
-    "--ref-text",
-    "ref_text",
-    type=str,
-    default="",
-    help="Transcription of the reference audio (optional — OmniVoice auto-transcribes)",
-)
-@click.option(
     "--device",
-    type=click.Choice(["cpu", "cuda"]),
-    default="cpu",
+    type=click.Choice(["cpu", "cuda", "mps"]),
+    default="mps",
     show_default=True,
     help="Device to run the TTS model on",
 )
@@ -294,37 +314,51 @@ def epub_cmd(
     is_flag=True,
     help="Run browser visibly (for debugging)",
 )
+@click.option(
+    "--max-sections",
+    type=int,
+    default=0,
+    help="Only process the first N sections (0 = all). Quick-test shortcut.",
+)
 def audiobook_cmd(
     url: str | None,
     output: Path | None,
     html_file: Path | None,
+    md_file: Path | None,
     reference_audio: Path | None,
     voice_prompt: Path | None,
     save_prompt: Path | None,
-    ref_text: str,
     device: str,
     verbose: bool,
+    max_sections: int = 0,
     browser_auth: Path | None = None,
     browser_headed: bool = False,
 ) -> None:
-    """Generate an MP3 audiobook from an X.com article using OmniVoice.
+    """Generate an MP3 audiobook from an X.com article using Chatterbox.
 
     \b
-    Requires either -r (reference audio) or -p (cached voice prompt).
-    A transcription is optional — OmniVoice auto-transcribes with Whisper.
-    The TTS model is downloaded from Hugging Face on first run and cached locally.
+    Uses a built-in default voice.  Pass -r (reference audio) or
+    -p (cached voice prompt) for zero-shot voice cloning.
+    The TTS model is downloaded on first run and cached locally.
 
     \b
     Examples:
-        reed audiobook https://x.com/user/status/123 -r voice.wav
+        reed audiobook --html article.html
+        reed audiobook --md article.md
         reed audiobook --html article.html -r voice.wav --save-prompt my_voice.pt
         reed audiobook --html article.html -p my_voice.pt
-        reed audiobook -o out.mp3 --html article.html -p my_voice.pt
+        reed audiobook -o out.mp3 --html article.html
     """
     _setup_logging(verbose)
 
     try:
-        article = _resolve_article(url, html_file, browser_auth, browser_headed)
+        article = _resolve_article(
+            url, html_file=html_file, md_file=md_file,
+            browser_auth=browser_auth, browser_headed=browser_headed,
+        )
+
+        if max_sections > 0 and len(article.sections) > max_sections:
+            article.sections = article.sections[:max_sections]
 
         logger.info(
             "Article: title=%r, author=%r, sections=%d",
@@ -349,7 +383,6 @@ def audiobook_cmd(
             article,
             output_path,
             reference_audio_path=str(reference_audio) if reference_audio else "",
-            ref_text=ref_text,
             voice_prompt_path=str(voice_prompt) if voice_prompt else "",
             save_prompt_path=str(save_prompt) if save_prompt else "",
             device=device,
@@ -374,9 +407,7 @@ def audiobook_cmd(
 @click.option(
     "--host", default="127.0.0.1", show_default=True, help="Host address to bind to"
 )
-@click.option(
-    "--port", default=8080, show_default=True, help="Port to listen on"
-)
+@click.option("--port", default=8080, show_default=True, help="Port to listen on")
 @click.option(
     "--open/--no-open",
     "open_browser",
@@ -525,6 +556,12 @@ def fetch_cmd(
     type=click.Path(exists=True, path_type=Path),
     help="Use a local HTML file instead of downloading",
 )
+@click.option(
+    "--md",
+    "md_file",
+    type=click.Path(exists=True, path_type=Path),
+    help="Use a local Markdown file instead of downloading",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 @click.option(
     "--auth",
@@ -542,6 +579,7 @@ def markdown_cmd(
     url: str | None,
     output: Path | None,
     html_file: Path | None,
+    md_file: Path | None,
     verbose: bool,
     browser_auth: Path | None = None,
     browser_headed: bool = False,
@@ -555,11 +593,19 @@ def markdown_cmd(
     \b
     For X Articles (long-form posts), Playwright is used automatically:
         reed markdown https://x.com/user/article/123
+
+    \b
+    Use a local file instead of downloading:
+        reed markdown --html article.html
+        reed markdown --md article.md
     """
     _setup_logging(verbose)
 
     try:
-        article = _resolve_article(url, html_file, browser_auth, browser_headed)
+        article = _resolve_article(
+            url, html_file=html_file, md_file=md_file,
+            browser_auth=browser_auth, browser_headed=browser_headed,
+        )
 
         logger.info(
             "Article: title=%r, author=%r, sections=%d",

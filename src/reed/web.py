@@ -16,7 +16,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from .inputs import extract_from_html, extract_from_url
+from .inputs import extract_from_html, extract_from_markdown, extract_from_url
 from .inputs.browser import derive_filename, download_article_html
 from .outputs import generate_audiobook, generate_epub, generate_markdown
 
@@ -53,31 +53,16 @@ def _handle_generate() -> tuple:
             400,
         )
 
-    # -- validate reference audio + ref_text (audiobook only) ------------------
+    # -- handle reference audio (audiobook only, optional) -------------------
     ref_audio_tmp: Path | None = None
-    ref_text: str | None = None
     if fmt == "audiobook":
         ref_audio = request.files.get("reference_audio")
-        if ref_audio is None or ref_audio.filename == "":
-            return (
-                jsonify(
-                    {
-                        "error": (
-                            "Reference audio file is required for audiobook format. "
-                            "Upload a short audio clip for voice cloning."
-                        )
-                    }
-                ),
-                400,
-            )
-        ref_text = (request.form.get("ref_text") or "").strip()
-        # ref_text is optional — OmniVoice auto-transcribes if omitted
-        # Save reference audio to a temp file
-        with tempfile.NamedTemporaryFile(
-            suffix=".wav", delete=False
-        ) as tmp:
-            ref_audio.save(tmp.name)
-            ref_audio_tmp = Path(tmp.name)
+        if ref_audio is not None and ref_audio.filename != "":
+            with tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False
+            ) as tmp:
+                ref_audio.save(tmp.name)
+                ref_audio_tmp = Path(tmp.name)
 
     # -- fetch format: download rendered HTML directly -------------------------
     if fmt == "fetch":
@@ -119,27 +104,33 @@ def _handle_generate() -> tuple:
                     jsonify({"error": "file is required when source_type is 'file'"}),
                     400,
                 )
-            if not uploaded.filename.lower().endswith((".html", ".htm")):
+            fname_lower = uploaded.filename.lower()
+            if not (fname_lower.endswith((".html", ".htm")) or fname_lower.endswith(".md")):
                 return (
                     jsonify(
                         {
                             "error": (
-                                f"File must be an HTML file (.html or .htm), "
-                                f"got: {uploaded.filename}"
+                                f"File must be an HTML file (.html/.htm) or "
+                                f"Markdown file (.md), got: {uploaded.filename}"
                             )
                         }
                     ),
                     400,
                 )
 
-            # Save uploaded file to a temp location so extract_from_html can read it
+            # Save uploaded file to a temp location so extractors can read it
+            is_md = fname_lower.endswith(".md")
+            suffix = ".md" if is_md else ".html"
             with tempfile.NamedTemporaryFile(
-                suffix=".html", delete=False
+                suffix=suffix, delete=False
             ) as tmp:
                 uploaded.save(tmp.name)
                 tmp_html = Path(tmp.name)
 
-            article = extract_from_html(tmp_html)
+            if is_md:
+                article = extract_from_markdown(tmp_html)
+            else:
+                article = extract_from_html(tmp_html)
 
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -193,9 +184,8 @@ def _handle_generate() -> tuple:
             generate_audiobook(
                 article,
                 output_tmp,
-                reference_audio_path=str(ref_audio_tmp),
-                ref_text=ref_text,
-                device="cpu",
+                reference_audio_path=str(ref_audio_tmp) if ref_audio_tmp else "",
+                device="mps",
             )
 
             output_bytes = BytesIO(output_tmp.read_bytes())
@@ -248,8 +238,8 @@ def create_app() -> Flask:
         return jsonify(
             [
                 {
-                    "id": "omnivoice",
-                    "name": "OmniVoice (k2-fsa)",
+                    "id": "chatterbox",
+                    "name": "Chatterbox Turbo",
                     "max_chars": 2000,
                 }
             ]
