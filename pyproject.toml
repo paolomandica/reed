@@ -18,6 +18,7 @@ dependencies = [
     "torch",
     "setuptools<70",
     "chatterbox-tts>=0.1.7",
+    "kokoro>=0.9.2",
     "numpy>=2.4.6",
 ]
 

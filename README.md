@@ -18,6 +18,11 @@ uv sync
   brew install ffmpeg    # macOS
   apt install ffmpeg     # Linux
   ```
+- **espeak-ng** — required for Kokoro TTS backend (phoneme processing)
+  ```bash
+  brew install espeak-ng   # macOS
+  apt install espeak-ng    # Linux
+  ```
 
 ## Usage
 
@@ -26,7 +31,7 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   epub        Generate a Kindle-compatible EPUB
-  audiobook   Generate an MP3 audiobook using Chatterbox TTS
+  audiobook   Generate an MP3 audiobook using Chatterbox or Kokoro TTS
   markdown    Generate a Markdown file
   web         Start a browser-based web interface
 ```
@@ -77,20 +82,30 @@ Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
-Generate an MP3 audiobook from an article using Chatterbox TTS with the
-built-in default voice. Works with X.com articles, Substack newsletters, and
-any saved HTML article page.
+Generate an MP3 audiobook from an article using local TTS — choose between
+**Chatterbox** (ResembleAI/chatterbox) and **Kokoro-82M** (hexgrad/Kokoro-82M,
+20 American English voices, Apache-2.0 licensed).
+
+Works with X.com articles, Substack newsletters, and any saved HTML article page.
 
 #### Prerequisites
 
 - **ffmpeg** installed on your system (see [System dependencies](#system-dependencies))
-- The Chatterbox model is downloaded from Hugging Face on first run and cached locally — no API key needed.
+- **espeak-ng** (Kokoro only, see above)
+- Models are downloaded from Hugging Face on first run and cached locally — no API key needed.
 
 #### Quick start
 
 ```bash
-# Use the built-in default voice
+# Chatterbox (default) — built-in default voice
 reed audiobook --html article.html
+
+# Kokoro — faster, 20 US English voices to choose from
+reed audiobook --html article.html --tts-backend kokoro --voice af_heart
+reed audiobook --html article.html --tts-backend kokoro --voice af_bella
+
+# List available Kokoro voices
+reed audiobook --list-voices
 
 # Slow down the speech (0.85 = 15% slower)
 reed audiobook --html article.html --speed 0.85
@@ -102,8 +117,17 @@ reed audiobook --html article.html --speed 1.25
 reed audiobook -o my-article.mp3 --html article.html
 
 # From a Markdown file
-reed audiobook --md article.md
+reed audiobook --md article.md --tts-backend kokoro
 ```
+
+#### TTS Backends
+
+| Backend | Model | Voices | Speed | Notes |
+|---------|-------|--------|-------|-------|
+| `chatterbox` (default) | ResembleAI/chatterbox | 1 built-in | ffmpeg atempo | Emotion/exaggeration controls |
+| `kokoro` | hexgrad/Kokoro-82M | 20 US English | native | Requires espeak-ng, faster inference |
+
+Kokoro top voices by quality: `af_heart` (A grade ❤️), `af_bella` (A- 🔥), `af_nicole` (B- 🎧).
 
 #### Options
 
@@ -111,17 +135,30 @@ reed audiobook --md article.md
 Usage: reed audiobook [OPTIONS]
 
 Options:
-  -o, --output PATH        Output audio file path (default: audiobooks/<title-slug>.mp3)
-  --html PATH              Use a local HTML file
-  --md PATH                Use a local Markdown file
-  --device [cpu|cuda|mps]  Device to run the TTS model on  [default: mps]
-  --speed FLOAT            Playback speed (0.5–2.0). 0.85 = 15% slower, 1.0 = normal.  [default: 1.0]
-  -v, --verbose            Show detailed progress
-  --max-sections INTEGER   Only process the first N sections (0 = all) — quick-test shortcut
-  --help                   Show this message
+  -o, --output PATH                     Output audio file path (default:
+                                        audiobooks/<title-slug>.mp3)
+  --html PATH                           Use a local HTML file
+  --md PATH                             Use a local Markdown file
+  --device [cpu|cuda|mps]               Device to run the TTS model on
+                                        [default: mps]
+  -b, --tts-backend [chatterbox|kokoro] TTS engine to use  [default:
+                                        chatterbox]
+  --voice TEXT                          Voice for Kokoro backend (ignored by
+                                        Chatterbox). Use --list-voices to see
+                                        all options.  [default: af_heart]
+  --list-voices                         List available Kokoro voices and exit.
+  --speed FLOAT                         Playback speed (0.5–2.0).  [default:
+                                        1.0]
+  -v, --verbose                         Show detailed progress
+  --max-sections INTEGER                Only process the first N sections (0 =
+                                        all) — quick-test shortcut
+  --help                                Show this message
 ```
 
-The article text is automatically split into chunks. Audio chunks are concatenated with a 0.5-second pause between sections and exported as a 64 kbps MP3. Use `--speed` to control playback rate via ffmpeg time-stretching (no model retuning needed).
+The article text is automatically split into chunks. Audio chunks are
+concatenated with a 0.5-second pause between sections and exported as a
+64 kbps MP3. For Kokoro, `--speed` is applied natively during generation.
+For Chatterbox, `--speed` controls playback rate via ffmpeg time-stretching.
 
 ### Web Interface
 
@@ -212,4 +249,4 @@ reed audiobook --md article.md
 3. **Convert**: the extracted content is converted to your chosen format:
    - **EPUB**: Kindle-optimized ebook with proper metadata, TOC, and styling
    - **Markdown**: HTML body is converted via `markdownify` with a metadata header
-   - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Chatterbox, and encoded to MP3
+   - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Chatterbox or Kokoro-82M, and encoded to MP3

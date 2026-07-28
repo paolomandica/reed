@@ -177,6 +177,29 @@ def epub_cmd(
     help="Device to run the TTS model on",
 )
 @click.option(
+    "--tts-backend",
+    "-b",
+    "backend",
+    type=click.Choice(["chatterbox", "kokoro"]),
+    default="chatterbox",
+    show_default=True,
+    help="TTS engine to use",
+)
+@click.option(
+    "--voice",
+    type=str,
+    default="af_heart",
+    show_default=True,
+    help="Voice for Kokoro backend (ignored by Chatterbox). "
+    "Use --list-voices to see all options.",
+)
+@click.option(
+    "--list-voices",
+    "list_voices",
+    is_flag=True,
+    help="List available Kokoro voices and exit.",
+)
+@click.option(
     "--speed",
     type=float,
     default=1.0,
@@ -195,25 +218,42 @@ def audiobook_cmd(
     html_file: Path | None,
     md_file: Path | None,
     device: str,
+    backend: str,
+    voice: str,
+    list_voices: bool,
     speed: float,
     verbose: bool,
     max_sections: int = 0,
 ) -> None:
-    """Generate an MP3 audiobook from an article using Chatterbox.
+    """Generate an MP3 audiobook from an article.
 
     \b
-    Uses the built-in default Chatterbox voice — no reference audio needed.
+    Supports two local TTS backends:
+      - chatterbox — ResembleAI/chatterbox with built-in default voice
+      - kokoro     — hexgrad/Kokoro-82M (82M params, 20 US English voices)
+
     The TTS model is downloaded on first run and cached locally.
+    Kokoro additionally requires the espeak-ng system package.
 
     \b
     Examples:
         reed audiobook --html article.html
-        reed audiobook --md article.md
-        reed audiobook --html article.html --speed 0.85
+        reed audiobook --html article.html --tts-backend kokoro --voice af_bella
+        reed audiobook --md article.md --speed 0.85
         reed audiobook -o out.mp3 --html article.html
+        reed audiobook --list-voices
     """
-    # Lazy import — Chatterbox pulls in torch, numpy, soundfile (heavy)
+    # Lazy import — pulls in torch, numpy, soundfile (heavy)
     from .outputs import generate_audiobook
+
+    # --list-voices just prints the voice table and exits
+    if list_voices:
+        from .outputs.audiobook import _KOKORO_VOICES
+
+        click.echo("Kokoro American English voices:\n")
+        for v in _KOKORO_VOICES:
+            click.echo(f"  {v}")
+        return
 
     _setup_logging(verbose)
 
@@ -250,6 +290,8 @@ def audiobook_cmd(
             article,
             output_path,
             device=device,
+            backend=backend,
+            voice=voice,
             speed=speed,
         )
 
@@ -288,7 +330,7 @@ def web_cmd(host: str, port: int, open_browser: bool, debug: bool) -> None:
     """
     from .web import create_app
 
-    app = create_app()
+    app = create_app(debug=debug)
     url = f"http://{host}:{port}"
 
     click.echo(f"Starting reed web interface on {url}")

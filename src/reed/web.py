@@ -63,7 +63,9 @@ def _run_generation(
     source_type: str,
     article: Article,
     speed: float = 1.0,
-    ref_audio_path: str = "",
+    tts_backend: str = "chatterbox",
+    voice: str = "af_heart",
+    max_chunks: int = 0,
 ) -> None:
     """Run the output generation in a background thread.
 
@@ -109,7 +111,10 @@ def _run_generation(
                 article,
                 output_tmp,
                 device="mps",
+                backend=tts_backend,
+                voice=voice,
                 speed=speed,
+                max_chunks=max_chunks,
                 progress_callback=_make_progress_callback(task_id),
                 cancel_check=(lambda: cancel_event.is_set()) if cancel_event else None,
             )
@@ -184,8 +189,11 @@ def _handle_generate() -> tuple:
             400,
         )
 
-    # -- parse speed (audiobook only) -----------------------------------------
+    # -- parse speed / backend / voice (audiobook only) -------------------------
     speed: float = 1.0
+    tts_backend: str = "chatterbox"
+    voice: str = "af_heart"
+    max_chunks: int = 0
     if fmt == "audiobook":
         try:
             speed_str = (request.form.get("speed") or "1.0").strip()
@@ -194,6 +202,20 @@ def _handle_generate() -> tuple:
             return jsonify({"error": "speed must be a number"}), 400
         if speed < 0.5 or speed > 2.0:
             return jsonify({"error": "speed must be between 0.5 and 2.0"}), 400
+
+        tts_backend = (request.form.get("tts_backend") or "chatterbox").strip().lower()
+        if tts_backend not in ("chatterbox", "kokoro"):
+            return (
+                jsonify({"error": "tts_backend must be 'chatterbox' or 'kokoro'"}),
+                400,
+            )
+
+        voice = (request.form.get("voice") or "af_heart").strip()
+
+        try:
+            max_chunks = int(request.form.get("max_chunks") or "0")
+        except (ValueError, TypeError):
+            max_chunks = 0
 
     # -- resolve article from uploaded file or pasted text -------------------
     source_type = (request.form.get("source_type") or "file").strip().lower()
@@ -285,6 +307,9 @@ def _handle_generate() -> tuple:
             "source_type": source_type,
             "article": article,
             "speed": speed,
+            "tts_backend": tts_backend,
+            "voice": voice,
+            "max_chunks": max_chunks,
         },
         daemon=True,
     )
@@ -298,27 +323,44 @@ def _handle_generate() -> tuple:
 # ---------------------------------------------------------------------------
 
 
-def create_app() -> Flask:
+def create_app(debug: bool = False) -> Flask:
     """Create and configure the Flask application."""
     app = Flask(__name__)
 
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MiB
+    app.config["REED_DEBUG"] = debug
 
     @app.route("/")
     def index():
         """Serve the single-page frontend."""
         return send_from_directory(STATIC_DIR, "index.html")
 
+    @app.route("/api/config")
+    def get_config():
+        """Return runtime configuration for the frontend."""
+        return jsonify({"debug": app.config.get("REED_DEBUG", False)})
+
     @app.route("/api/models")
     def get_models():
         """Return the list of available TTS models."""
+        try:
+            from .outputs.audiobook import _KOKORO_VOICES
+        except ImportError:
+            _KOKORO_VOICES = ["af_heart", "af_bella"]
         return jsonify(
             [
                 {
                     "id": "chatterbox",
                     "name": "Chatterbox Turbo",
                     "max_chars": 2000,
-                }
+                    "voices": [],
+                },
+                {
+                    "id": "kokoro",
+                    "name": "Kokoro-82M",
+                    "max_chars": 500,
+                    "voices": _KOKORO_VOICES,
+                },
             ]
         )
 

@@ -1,12 +1,17 @@
-"""Generate audiobooks from articles using ResembleAI Chatterbox TTS.
+"""Generate audiobooks from articles using Chatterbox or Kokoro TTS.
 
 Install::
 
-    pip install chatterbox-tts soundfile click numpy
+    pip install chatterbox-tts kokoro soundfile click numpy
+
+Kokoro additionally requires the ``espeak-ng`` system package::
+
+    brew install espeak-ng   # macOS
+    apt install espeak-ng    # Linux
 
 Audio I/O uses ``soundfile`` (WAV), ``numpy`` (concatenation), and system
-``ffmpeg`` (MP3).  The model is loaded from Hugging Face
-``ResembleAI/chatterbox`` via ``ChatterboxTTS.from_pretrained``.
+``ffmpeg`` (MP3).  Models are downloaded from Hugging Face on first use
+and cached by the hub thereafter.
 """
 
 from __future__ import annotations
@@ -23,7 +28,6 @@ import click
 import numpy as np
 import soundfile as sf
 import torch
-from chatterbox.tts import ChatterboxTTS
 
 from ..models import Article, SectionType
 
@@ -32,48 +36,79 @@ logger = logging.getLogger(__name__)
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 # ---------------------------------------------------------------------------
-# Constants / model cache
+# Constants / model caches
 # ---------------------------------------------------------------------------
 
-_tts_model: ChatterboxTTS | None = None
-_MAX_CHARS = 400  # Chatterbox is happiest with shorter turns
+_chatterbox_model: object | None = None  # ChatterboxTTS
+_kokoro_pipeline: object | None = None  # KPipeline
+
+_MAX_CHARS_CHATTERBOX = 400
+_MAX_CHARS_KOKORO = 500
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
+# Top American English voices for Kokoro (by quality grade)
+_KOKORO_VOICES = [
+    "af_heart",   # A  ❤️
+    "af_bella",   # A- 🔥
+    "af_nicole",  # B- 🎧
+    "af_aoede",   # C+
+    "af_kore",    # C+
+    "af_sarah",   # C+
+    "af_alloy",   # C
+    "af_nova",    # C
+    "af_sky",     # C-
+    "af_jessica", # D
+    "af_river",   # D
+    "am_adam",    # F+
+    "am_fenrir",  # C+
+    "am_michael", # C+
+    "am_puck",    # C+
+    "am_echo",    # D
+    "am_eric",    # D
+    "am_liam",    # D
+    "am_onyx",    # D
+    "am_santa",   # D-
+]
+
 
 # ---------------------------------------------------------------------------
-# Model loading
+# Device resolution
 # ---------------------------------------------------------------------------
 
 
 def _resolve_device(device: str) -> str:
-    """Map a user-facing device string to what Chatterbox expects."""
+    """Map a user-facing device string to what each backend expects."""
     d = device.lower().strip()
     if d in {"cpu", "mps"}:
         return d
     if d in {"cuda", "gpu"}:
         return "cuda"
     if d.startswith("cuda:"):
-        # Chatterbox uses a single "cuda" device string; pin via CUDA_VISIBLE_DEVICES
-        # if you need a non-zero GPU index.
         if d != "cuda:0":
             logger.warning(
-                "Chatterbox uses device='cuda'; for multi-GPU pin "
-                "CUDA_VISIBLE_DEVICES (requested %s).",
+                "For multi-GPU pin set CUDA_VISIBLE_DEVICES (requested %s).",
                 d,
             )
         return "cuda"
     raise ValueError(f"Unsupported device {device!r}. Use cpu, cuda, or mps.")
 
 
-def _load_tts_model(device: str = "mps") -> ChatterboxTTS:
+# ---------------------------------------------------------------------------
+# Chatterbox backend
+# ---------------------------------------------------------------------------
+
+
+def _load_chatterbox_model(device: str = "mps"):
     """Load (or return cached) Chatterbox TTS model.
 
     Weights are downloaded from Hugging Face ``ResembleAI/chatterbox`` on
     first load and cached by the hub thereafter.
     """
-    global _tts_model
-    if _tts_model is None:
+    from chatterbox.tts import ChatterboxTTS
+
+    global _chatterbox_model
+    if _chatterbox_model is None:
         device_str = _resolve_device(device)
         # Fall back to CPU if requested device is MPS but unavailable
         if (
@@ -83,18 +118,13 @@ def _load_tts_model(device: str = "mps") -> ChatterboxTTS:
             click.echo("MPS not available — falling back to CPU.")
             device_str = "cpu"
         click.echo(f"Loading Chatterbox TTS on {device_str}...")
-        _tts_model = ChatterboxTTS.from_pretrained(device=device_str)
-        click.echo(f"Model loaded (sample rate={_tts_model.sr} Hz).")
-    return _tts_model
+        _chatterbox_model = ChatterboxTTS.from_pretrained(device=device_str)
+        click.echo(f"Model loaded (sample rate={_chatterbox_model.sr} Hz).")
+    return _chatterbox_model
 
 
-# ---------------------------------------------------------------------------
-# Voice conditionals (default voice only)
-# ---------------------------------------------------------------------------
-
-
-def _prepare_voice(
-    model: ChatterboxTTS,
+def _prepare_chatterbox_voice(
+    model: object,
     *,
     exaggeration: float = 0.5,
 ) -> None:
@@ -103,6 +133,8 @@ def _prepare_voice(
     Uses the checkpoint's shipped default voice (``conds.pt``).
     No reference audio or voice cloning is used.
     """
+    from chatterbox.tts import T3Cond
+
     if model.conds is None:
         raise ValueError(
             "This checkpoint has no built-in default voice. "
@@ -111,8 +143,6 @@ def _prepare_voice(
     click.echo("Using built-in default Chatterbox voice.")
     # Update exaggeration on the existing conditionals if needed
     if hasattr(model.conds, "t3") and exaggeration != 0.5:
-        from chatterbox.tts import T3Cond
-
         _cond = model.conds.t3
         model.conds.t3 = T3Cond(
             speaker_emb=_cond.speaker_emb,
@@ -122,12 +152,64 @@ def _prepare_voice(
 
 
 # ---------------------------------------------------------------------------
-# Speech generation
+# Kokoro backend
+# ---------------------------------------------------------------------------
+
+
+def _load_kokoro_pipeline(device: str = "mps") -> object:
+    """Load (or return cached) Kokoro TTS pipeline.
+
+    Downloads ``hexgrad/Kokoro-82M`` from Hugging Face on first use.
+    Uses American English (lang_code='a').
+
+    On Apple Silicon, sets ``PYTORCH_ENABLE_MPS_FALLBACK=1`` so Kokoro's
+    ops that don't have native MPS kernels fall back to CPU gracefully.
+    """
+    from kokoro import KPipeline
+
+    global _kokoro_pipeline
+    if _kokoro_pipeline is None:
+        device_str = _resolve_device(device)
+        if device_str == "mps":
+            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        elif device_str == "cuda":
+            click.echo("Kokoro runs on GPU via PyTorch CUDA.")
+        click.echo(f"Loading Kokoro-82M pipeline (lang=en, device={device_str})...")
+        _kokoro_pipeline = KPipeline(lang_code="a")
+        click.echo("Kokoro pipeline loaded (sample rate=24000 Hz).")
+    return _kokoro_pipeline
+
+
+def _generate_kokoro_speech(
+    text: str,
+    pipeline: object,
+    *,
+    voice: str = "af_heart",
+    speed: float = 1.0,
+) -> tuple[int, np.ndarray]:
+    """Generate speech for *text* using Kokoro.
+
+    Returns:
+        ``(sample_rate, audio)`` with audio shape ``(T,)`` at 24000 Hz.
+    """
+    generator = pipeline(text, voice=voice, speed=speed, split_pattern=r"\n+")
+    segments: list[np.ndarray] = []
+    for _gs, _ps, audio in generator:
+        segments.append(np.asarray(audio, dtype=np.float32))
+
+    if not segments:
+        raise RuntimeError("Kokoro produced no audio for the given text.")
+
+    return 24000, np.concatenate(segments)
+
+
+# ---------------------------------------------------------------------------
+# Speech generation helpers
 # ---------------------------------------------------------------------------
 
 
 def _tensor_to_numpy(wav: torch.Tensor | np.ndarray) -> np.ndarray:
-    """Convert Chatterbox output to mono float32 numpy."""
+    """Convert tensor output to mono float32 numpy."""
     if isinstance(wav, torch.Tensor):
         wav = wav.detach().float().cpu().numpy()
     x = np.asarray(wav, dtype=np.float32)
@@ -137,9 +219,9 @@ def _tensor_to_numpy(wav: torch.Tensor | np.ndarray) -> np.ndarray:
     return x.reshape(-1)
 
 
-def _generate_speech(
+def _generate_chatterbox_speech(
     text: str,
-    model: ChatterboxTTS,
+    model: object,
     *,
     exaggeration: float = 0.5,
     cfg_weight: float = 0.5,
@@ -152,7 +234,9 @@ def _generate_speech(
         ``(sample_rate, audio)`` with audio shape ``(T,)``.
     """
     if model.conds is None:
-        raise RuntimeError("Voice conditionals are not set. Call _prepare_voice first.")
+        raise RuntimeError(
+            "Voice conditionals are not set. Call _prepare_chatterbox_voice first."
+        )
 
     wav = model.generate(
         text,
@@ -160,8 +244,6 @@ def _generate_speech(
         cfg_weight=cfg_weight,
         temperature=temperature,
         repetition_penalty=repetition_penalty,
-        # Do not pass audio_prompt_path here — conditionals are already prepared
-        # so we avoid re-encoding the reference on every chunk.
     )
     return int(model.sr), _tensor_to_numpy(wav)
 
@@ -498,7 +580,9 @@ def generate_audiobook(
     output_path: Path,
     device: str = "cpu",
     *,
-    max_chars: int = _MAX_CHARS,
+    backend: str = "chatterbox",
+    voice: str = "af_heart",
+    max_chars: int | None = None,
     silence_ms: int = 500,
     exaggeration: float = 0.5,
     cfg_weight: float = 0.5,
@@ -508,54 +592,86 @@ def generate_audiobook(
     speed: float = 1.0,
     progress_callback: Callable[[int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
+    max_chunks: int = 0,
 ) -> Path:
     """Convert an article to spoken audio and save as MP3.
 
-    Uses local Chatterbox (``ResembleAI/chatterbox``) with the built-in
-    default voice — no API key or reference audio needed after the initial
-    model download.
+    Supports two local TTS backends:
+
+    * **chatterbox** — ``ResembleAI/chatterbox`` with built-in default voice.
+    * **kokoro** — ``hexgrad/Kokoro-82M`` (82M params, 20 American English
+      voices).  Requires ``espeak-ng`` system package.
 
     Args:
         article: Structured article with content sections.
         output_path: Destination MP3 path.
         device: ``cpu``, ``cuda``, or ``mps``.
-        max_chars: Max characters per TTS chunk (keep modest; Chatterbox
-            generation is token-capped).
+        backend: ``"chatterbox"`` (default) or ``"kokoro"``.
+        voice: Kokoro voice pack name (default ``"af_heart"``).  Ignored
+            by Chatterbox.  See ``_KOKORO_VOICES`` for the full list.
+        max_chars: Max characters per TTS chunk.  Defaults to a
+            backend-appropriate value if not set.
         silence_ms: Silence inserted between chunks.
-        exaggeration: Emotion / intensity (default ``0.5``; try ``~0.7``
-            for more dramatic delivery).
-        cfg_weight: Classifier-free guidance (default ``0.5``; lower ~``0.3``
-            for a more relaxed delivery).
-        temperature: Sampling temperature (default ``0.8``).
-        repetition_penalty: Token repetition penalty (default ``1.2``).
+        exaggeration: (Chatterbox only) Emotion / intensity.
+        cfg_weight: (Chatterbox only) Classifier-free guidance.
+        temperature: (Chatterbox only) Sampling temperature.
+        repetition_penalty: (Chatterbox only) Token repetition penalty.
         mp3_bitrate: LAME bitrate string, e.g. ``64k``.
-        speed: Playback speed multiplier (default ``1.0``).  Values < 1.0
-            slow down speech, > 1.0 speed it up.  Uses ffmpeg ``atempo``
-            filter (range 0.5–2.0).
+        speed: Playback speed multiplier (default ``1.0``).  For Chatterbox
+            this is applied via ffmpeg ``atempo`` post-processing.  Kokoro
+            applies speed natively during generation.
         progress_callback: Optional callback ``(current, total, message)``
-            called after each TTS chunk completes.  Used by the web
-            interface to drive a progress bar.
+            called after each TTS chunk completes.
         cancel_check: Optional callable that returns ``True`` when
-            generation should be cancelled early.  Called after each
-            chunk; if it returns ``True`` the partial audio is discarded
-            and a ``RuntimeError("cancelled")`` is raised.
+            generation should be cancelled early.
+        max_chunks: If > 0, only generate the first *max_chunks* chunks
+            (useful for quick testing).  Default ``0`` = all chunks.
 
     Returns:
         Path to the generated MP3.
     """
-    model = _load_tts_model(device)
+    backend = backend.lower().strip()
+    if backend not in ("chatterbox", "kokoro"):
+        raise ValueError(
+            f"Unknown backend {backend!r}. Choose 'chatterbox' or 'kokoro'."
+        )
 
-    _prepare_voice(model, exaggeration=exaggeration)
+    # ------------------------------------------------------------------
+    # Load model / pipeline
+    # ------------------------------------------------------------------
+    if backend == "kokoro":
+        pipeline = _load_kokoro_pipeline(device)
+        if max_chars is None:
+            max_chars = _MAX_CHARS_KOKORO
+        backend_label = f"Kokoro-82M ({voice})"
+    else:
+        model = _load_chatterbox_model(device)
+        _prepare_chatterbox_voice(model, exaggeration=exaggeration)
+        if max_chars is None:
+            max_chars = _MAX_CHARS_CHATTERBOX
+        backend_label = "Chatterbox"
 
+    # ------------------------------------------------------------------
+    # Chunk text
+    # ------------------------------------------------------------------
     chunks = article_text_for_tts(article, max_chars)
     if not chunks:
         raise ValueError("Article has no text content to convert to speech.")
 
+    if max_chunks > 0 and len(chunks) > max_chunks:
+        click.echo(
+            f"Test mode: limiting to first {max_chunks} of {len(chunks)} chunks."
+        )
+        chunks = chunks[:max_chunks]
+
     click.echo(
         f"\nGenerating audio for {len(chunks)} chunk(s) "
-        f"using Chatterbox ({_resolve_device(device)})..."
+        f"using {backend_label} ({_resolve_device(device)})..."
     )
 
+    # ------------------------------------------------------------------
+    # Generate speech chunk by chunk
+    # ------------------------------------------------------------------
     audio_chunks: list[tuple[int, np.ndarray]] = []
     failed = False
 
@@ -566,14 +682,19 @@ def generate_audiobook(
     ) as bar:
         for i, chunk in enumerate(chunks, start=1):
             try:
-                sr, audio = _generate_speech(
-                    chunk,
-                    model,
-                    exaggeration=exaggeration,
-                    cfg_weight=cfg_weight,
-                    temperature=temperature,
-                    repetition_penalty=repetition_penalty,
-                )
+                if backend == "kokoro":
+                    sr, audio = _generate_kokoro_speech(
+                        chunk, pipeline, voice=voice, speed=speed
+                    )
+                else:
+                    sr, audio = _generate_chatterbox_speech(
+                        chunk,
+                        model,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight,
+                        temperature=temperature,
+                        repetition_penalty=repetition_penalty,
+                    )
             except Exception as exc:
                 logger.exception("TTS failed on chunk %s/%s", i, len(chunks))
                 click.echo(
@@ -592,7 +713,7 @@ def generate_audiobook(
             audio_chunks.append((sr, audio))
             bar.update(1)
             if progress_callback:
-                progress_callback(i, len(chunks), f"Chunk {i}/{len(chunks)}")
+                progress_callback(i, len(chunks), "Generating audio…")
             if cancel_check and cancel_check():
                 click.echo("\nGeneration cancelled by user.")
                 raise RuntimeError("cancelled")
@@ -601,11 +722,14 @@ def generate_audiobook(
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
 
+    # ------------------------------------------------------------------
+    # Concatenate, time-stretch, encode
+    # ------------------------------------------------------------------
     click.echo("\nConcatenating audio chunks...")
     combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=silence_ms)
 
-    # Apply time-stretch (speed) at the generation level — before encoding
-    if speed != 1.0:
+    # Kokoro applies speed natively; only time-stretch for Chatterbox
+    if backend != "kokoro" and speed != 1.0:
         click.echo(f"Applying speed adjustment: {speed:.2f}×...")
         combined_audio = _time_stretch(combined_sr, combined_audio, speed=speed)
 
