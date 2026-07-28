@@ -654,6 +654,9 @@ def extract_from_html(html_path: Path) -> Article:
     # Strip non-content regions from the body root
     _decompose_non_content(body_root)
 
+    # Store the raw HTML body for downstream markdownify usage
+    html_body = str(body_root)
+
     sections = extract_sections(body_root, title=title)
 
     # Remove byline/date paragraphs that leaked into content
@@ -681,4 +684,4 @@ def extract_from_html(html_path: Path) -> Article:
         author,
         len(sections),
     )
-    return Article(metadata=metadata, sections=sections)
+    return Article(metadata=metadata, sections=sections, html_body=html_body)

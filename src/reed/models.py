@@ -48,6 +48,7 @@ class Article:
 
     metadata: ArticleMetadata
     sections: list[ContentSection] = field(default_factory=list)
+    html_body: str = ""
     uid: str = field(default_factory=lambda: str(uuid4()))
 
     @property

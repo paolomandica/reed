@@ -159,6 +159,11 @@ def _parse_content_sections(lines: list[str], start: int) -> list[ContentSection
                 )
             continue
 
+        # Horizontal rule / separator
+        if line.strip() == "---":
+            i += 1
+            continue
+
         # List item (unordered)
         ul_match = _UNORDERED_LIST_RE.match(line)
         if ul_match:

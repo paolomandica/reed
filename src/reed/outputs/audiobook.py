@@ -16,7 +16,7 @@ import logging
 import os
 import re
 import subprocess
-import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 import click
@@ -36,8 +36,7 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 # ---------------------------------------------------------------------------
 
 _tts_model: ChatterboxTTS | None = None
-_MAX_CHARS = 500  # Chatterbox is happiest with shorter turns
-_REF_SAMPLE_RATE = 16_000
+_MAX_CHARS = 400  # Chatterbox is happiest with shorter turns
 
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
@@ -77,7 +76,10 @@ def _load_tts_model(device: str = "mps") -> ChatterboxTTS:
     if _tts_model is None:
         device_str = _resolve_device(device)
         # Fall back to CPU if requested device is MPS but unavailable
-        if device_str == "mps" and not getattr(torch.backends.mps, "is_available", lambda: False)():
+        if (
+            device_str == "mps"
+            and not getattr(torch.backends.mps, "is_available", lambda: False)()
+        ):
             click.echo("MPS not available — falling back to CPU.")
             device_str = "cpu"
         click.echo(f"Loading Chatterbox TTS on {device_str}...")
@@ -87,111 +89,36 @@ def _load_tts_model(device: str = "mps") -> ChatterboxTTS:
 
 
 # ---------------------------------------------------------------------------
-# Reference audio / voice conditionals
+# Voice conditionals (default voice only)
 # ---------------------------------------------------------------------------
-
-
-def _is_wav_usable(path: str) -> bool:
-    """True if *path* is a readable mono-or-stereo WAV (any rate)."""
-    try:
-        info = sf.info(path)
-    except Exception:
-        return False
-    return info.frames > 0 and info.format == "WAV"
-
-
-def _prepare_reference_audio(reference_audio_path: str) -> tuple[str, bool]:
-    """Ensure reference audio is a WAV Chatterbox/librosa can load cleanly.
-
-    Chatterbox loads the prompt with librosa internally.  Converting exotic
-    containers (m4a, etc.) up front avoids opaque load failures.
-
-    Returns:
-        ``(path, is_temporary)`` — delete *path* when *is_temporary* is True.
-    """
-    if _is_wav_usable(reference_audio_path):
-        return reference_audio_path, False
-
-    fd, tmp_path = tempfile.mkstemp(suffix=".wav")
-    os.close(fd)
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        reference_audio_path,
-        "-ar",
-        str(_REF_SAMPLE_RATE),
-        "-ac",
-        "1",
-        "-c:a",
-        "pcm_s16le",
-        tmp_path,
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=30)
-    except FileNotFoundError:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise RuntimeError("ffmpeg is not installed or not on your PATH.") from None
-    except subprocess.TimeoutExpired:
-        Path(tmp_path).unlink(missing_ok=True)
-        raise RuntimeError(
-            "ffmpeg timed out while converting reference audio."
-        ) from None
-
-    if proc.returncode != 0:
-        Path(tmp_path).unlink(missing_ok=True)
-        stderr = proc.stderr.decode("utf-8", errors="replace")[-400:]
-        raise RuntimeError(f"ffmpeg failed to convert reference audio:\n{stderr}")
-
-    return tmp_path, True
 
 
 def _prepare_voice(
     model: ChatterboxTTS,
     *,
-    reference_audio_path: str = "",
-    voice_prompt_path: str = "",
-    save_prompt_path: str = "",
     exaggeration: float = 0.5,
 ) -> None:
-    """Attach voice conditionals to *model* (mutates ``model.conds``).
+    """Attach the built-in default voice conditionals to *model*.
 
-    Prefer a saved ``.pt`` conditionals file when available; otherwise build
-    them from *reference_audio_path* once via ``prepare_conditionals``.
+    Uses the checkpoint's shipped default voice (``conds.pt``).
+    No reference audio or voice cloning is used.
     """
-    if voice_prompt_path:
-        click.echo(f"Loading voice conditionals: {voice_prompt_path}")
-        # Conditionals lives on the chatterbox.tts module
-        from chatterbox.tts import Conditionals
+    if model.conds is None:
+        raise ValueError(
+            "This checkpoint has no built-in default voice. "
+            "Try a different Chatterbox checkpoint."
+        )
+    click.echo("Using built-in default Chatterbox voice.")
+    # Update exaggeration on the existing conditionals if needed
+    if hasattr(model.conds, "t3") and exaggeration != 0.5:
+        from chatterbox.tts import T3Cond
 
-        model.conds = Conditionals.load(
-            voice_prompt_path,
-            map_location=model.device,
-        ).to(model.device)
-        return
-
-    if not reference_audio_path:
-        # Built-in default voice shipped with the checkpoint (conds.pt)
-        if model.conds is None:
-            raise ValueError(
-                "Either reference_audio_path or voice_prompt_path is required "
-                "(and this checkpoint has no built-in default voice)."
-            )
-        click.echo("Using built-in default Chatterbox voice.")
-        return
-
-    ref_path, is_temp = _prepare_reference_audio(reference_audio_path)
-    try:
-        click.echo("Preparing voice conditionals from reference audio...")
-        model.prepare_conditionals(ref_path, exaggeration=exaggeration)
-    finally:
-        if is_temp:
-            Path(ref_path).unlink(missing_ok=True)
-
-    if save_prompt_path and model.conds is not None:
-        model.conds.save(Path(save_prompt_path))
-        click.echo(f"Voice conditionals saved: {save_prompt_path}")
+        _cond = model.conds.t3
+        model.conds.t3 = T3Cond(
+            speaker_emb=_cond.speaker_emb,
+            cond_prompt_speech_tokens=_cond.cond_prompt_speech_tokens,
+            emotion_adv=exaggeration * torch.ones(1, 1, 1),
+        ).to(device=model.device)
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +348,93 @@ def _ffmpeg_metadata_value(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
 
 
+def _build_atempo_filters(speed: float) -> str:
+    """Build a comma-separated chain of ffmpeg ``atempo`` filters.
+
+    Each ``atempo`` accepts values in [0.5, 2.0]; for values outside
+    that range we chain multiple instances.
+    """
+    remaining = speed
+    filters: list[str] = []
+    while remaining < 0.5:
+        filters.append("atempo=0.5")
+        remaining /= 0.5
+    while remaining > 2.0:
+        filters.append("atempo=2.0")
+        remaining /= 2.0
+    filters.append(f"atempo={remaining:.3f}")
+    return ",".join(filters)
+
+
+def _time_stretch(
+    sample_rate: int,
+    audio: np.ndarray,
+    speed: float = 1.0,
+) -> np.ndarray:
+    """Time-stretch *audio* via ffmpeg's ``atempo`` filter.
+
+    Pipes WAV bytes through ffmpeg with the appropriate ``atempo``
+    chain and reads the result back into a numpy array.  The sample
+    rate is preserved.
+
+    Args:
+        sample_rate: Sample rate of the input audio.
+        audio: Mono float32 numpy array.
+        speed: Playback speed multiplier (1.0 = no change,
+               < 1.0 = slower, > 1.0 = faster).
+
+    Returns:
+        Time-stretched mono float32 numpy array at the same sample rate.
+    """
+    if speed == 1.0:
+        return audio
+
+    wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
+    atempo = _build_atempo_filters(speed)
+
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "wav",
+        "-i",
+        "pipe:0",
+        "-filter:a",
+        atempo,
+        "-f",
+        "wav",
+        "pipe:1",
+    ]
+
+    try:
+        proc = subprocess.run(
+            cmd,
+            input=wav_bytes,
+            capture_output=True,
+            timeout=120,
+        )
+    except FileNotFoundError:
+        raise RuntimeError("ffmpeg is not installed or not on your PATH.") from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("ffmpeg timed out during time-stretching.") from None
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace")[-800:]
+        raise RuntimeError(f"ffmpeg time-stretch failed:\n{stderr}")
+
+    stretched, out_sr = sf.read(io.BytesIO(proc.stdout))
+    if out_sr != sample_rate:
+        logger.warning(
+            "ffmpeg time-stretch changed sample rate %d → %d — resampling.",
+            sample_rate,
+            out_sr,
+        )
+    return _as_float32_mono(stretched)
+
+
 def _wav_to_mp3(
     sample_rate: int,
     audio: np.ndarray,
@@ -482,9 +496,6 @@ def _wav_to_mp3(
 def generate_audiobook(
     article: Article,
     output_path: Path,
-    reference_audio_path: str = "",
-    voice_prompt_path: str = "",
-    save_prompt_path: str = "",
     device: str = "cpu",
     *,
     max_chars: int = _MAX_CHARS,
@@ -494,21 +505,19 @@ def generate_audiobook(
     temperature: float = 0.8,
     repetition_penalty: float = 1.2,
     mp3_bitrate: str = "64k",
+    speed: float = 1.0,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
     """Convert an article to spoken audio and save as MP3.
 
-    Uses local Chatterbox (``ResembleAI/chatterbox``) — no API key needed
-    after the initial model download.
+    Uses local Chatterbox (``ResembleAI/chatterbox``) with the built-in
+    default voice — no API key or reference audio needed after the initial
+    model download.
 
     Args:
         article: Structured article with content sections.
         output_path: Destination MP3 path.
-        reference_audio_path: Reference clip for zero-shot voice cloning
-            (~5–30 s of clean speech). Optional if the checkpoint has a
-            built-in default voice or *voice_prompt_path* is set.
-        voice_prompt_path: Precomputed conditionals ``.pt`` file (from a
-            previous ``save_prompt_path`` run).
-        save_prompt_path: If set, save prepared conditionals here for reuse.
         device: ``cpu``, ``cuda``, or ``mps``.
         max_chars: Max characters per TTS chunk (keep modest; Chatterbox
             generation is token-capped).
@@ -516,23 +525,27 @@ def generate_audiobook(
         exaggeration: Emotion / intensity (default ``0.5``; try ``~0.7``
             for more dramatic delivery).
         cfg_weight: Classifier-free guidance (default ``0.5``; lower ~``0.3``
-            if the reference speaker is fast or speech feels rushed).
+            for a more relaxed delivery).
         temperature: Sampling temperature (default ``0.8``).
         repetition_penalty: Token repetition penalty (default ``1.2``).
         mp3_bitrate: LAME bitrate string, e.g. ``64k``.
+        speed: Playback speed multiplier (default ``1.0``).  Values < 1.0
+            slow down speech, > 1.0 speed it up.  Uses ffmpeg ``atempo``
+            filter (range 0.5–2.0).
+        progress_callback: Optional callback ``(current, total, message)``
+            called after each TTS chunk completes.  Used by the web
+            interface to drive a progress bar.
+        cancel_check: Optional callable that returns ``True`` when
+            generation should be cancelled early.  Called after each
+            chunk; if it returns ``True`` the partial audio is discarded
+            and a ``RuntimeError("cancelled")`` is raised.
 
     Returns:
         Path to the generated MP3.
     """
     model = _load_tts_model(device)
 
-    _prepare_voice(
-        model,
-        reference_audio_path=reference_audio_path,
-        voice_prompt_path=voice_prompt_path,
-        save_prompt_path=save_prompt_path,
-        exaggeration=exaggeration,
-    )
+    _prepare_voice(model, exaggeration=exaggeration)
 
     chunks = article_text_for_tts(article, max_chars)
     if not chunks:
@@ -578,12 +591,23 @@ def generate_audiobook(
 
             audio_chunks.append((sr, audio))
             bar.update(1)
+            if progress_callback:
+                progress_callback(i, len(chunks), f"Chunk {i}/{len(chunks)}")
+            if cancel_check and cancel_check():
+                click.echo("\nGeneration cancelled by user.")
+                raise RuntimeError("cancelled")
+            click.echo(f"  Chunk {i}/{len(chunks)} done")
 
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
 
     click.echo("\nConcatenating audio chunks...")
     combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=silence_ms)
+
+    # Apply time-stretch (speed) at the generation level — before encoding
+    if speed != 1.0:
+        click.echo(f"Applying speed adjustment: {speed:.2f}×...")
+        combined_audio = _time_stretch(combined_sr, combined_audio, speed=speed)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
