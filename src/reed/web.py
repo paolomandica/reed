@@ -63,7 +63,6 @@ def _run_generation(
     source_type: str,
     article: Article,
     speed: float = 1.0,
-    tts_backend: str = "chatterbox",
     voice: str = "af_heart",
     max_chunks: int = 0,
 ) -> None:
@@ -110,8 +109,6 @@ def _run_generation(
             generate_audiobook(
                 article,
                 output_tmp,
-                device="mps",
-                backend=tts_backend,
                 voice=voice,
                 speed=speed,
                 max_chunks=max_chunks,
@@ -189,9 +186,8 @@ def _handle_generate() -> tuple:
             400,
         )
 
-    # -- parse speed / backend / voice (audiobook only) -------------------------
+    # -- parse speed / voice (audiobook only) -----------------------------------
     speed: float = 1.0
-    tts_backend: str = "chatterbox"
     voice: str = "af_heart"
     max_chunks: int = 0
     if fmt == "audiobook":
@@ -202,13 +198,6 @@ def _handle_generate() -> tuple:
             return jsonify({"error": "speed must be a number"}), 400
         if speed < 0.5 or speed > 2.0:
             return jsonify({"error": "speed must be between 0.5 and 2.0"}), 400
-
-        tts_backend = (request.form.get("tts_backend") or "chatterbox").strip().lower()
-        if tts_backend not in ("chatterbox", "kokoro"):
-            return (
-                jsonify({"error": "tts_backend must be 'chatterbox' or 'kokoro'"}),
-                400,
-            )
 
         voice = (request.form.get("voice") or "af_heart").strip()
 
@@ -307,7 +296,6 @@ def _handle_generate() -> tuple:
             "source_type": source_type,
             "article": article,
             "speed": speed,
-            "tts_backend": tts_backend,
             "voice": voice,
             "max_chunks": max_chunks,
         },
@@ -342,26 +330,15 @@ def create_app(debug: bool = False) -> Flask:
 
     @app.route("/api/models")
     def get_models():
-        """Return the list of available TTS models."""
+        """Return the list of available TTS models and voices."""
         try:
             from .outputs.audiobook import _KOKORO_VOICES
         except ImportError:
             _KOKORO_VOICES = ["af_heart", "af_bella"]
         return jsonify(
-            [
-                {
-                    "id": "chatterbox",
-                    "name": "Chatterbox Turbo",
-                    "max_chars": 2000,
-                    "voices": [],
-                },
-                {
-                    "id": "kokoro",
-                    "name": "Kokoro-82M",
-                    "max_chars": 500,
-                    "voices": _KOKORO_VOICES,
-                },
-            ]
+            {
+                "voices": _KOKORO_VOICES,
+            }
         )
 
     @app.route("/api/generate", methods=["POST"])

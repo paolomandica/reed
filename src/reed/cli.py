@@ -170,28 +170,11 @@ def epub_cmd(
     help="Use a local Markdown file",
 )
 @click.option(
-    "--device",
-    type=click.Choice(["cpu", "cuda", "mps"]),
-    default="mps",
-    show_default=True,
-    help="Device to run the TTS model on",
-)
-@click.option(
-    "--tts-backend",
-    "-b",
-    "backend",
-    type=click.Choice(["chatterbox", "kokoro"]),
-    default="chatterbox",
-    show_default=True,
-    help="TTS engine to use",
-)
-@click.option(
     "--voice",
     type=str,
     default="af_heart",
     show_default=True,
-    help="Voice for Kokoro backend (ignored by Chatterbox). "
-    "Use --list-voices to see all options.",
+    help="Kokoro voice. Use --list-voices to see all options.",
 )
 @click.option(
     "--list-voices",
@@ -217,33 +200,29 @@ def audiobook_cmd(
     output: Path | None,
     html_file: Path | None,
     md_file: Path | None,
-    device: str,
-    backend: str,
     voice: str,
     list_voices: bool,
     speed: float,
     verbose: bool,
     max_sections: int = 0,
 ) -> None:
-    """Generate an MP3 audiobook from an article.
+    """Generate an MP3 audiobook from an article using Kokoro-82M TTS.
 
     \b
-    Supports two local TTS backends:
-      - chatterbox — ResembleAI/chatterbox with built-in default voice
-      - kokoro     — hexgrad/Kokoro-82M (82M params, 20 US English voices)
+    Kokoro-82M is a lightweight (82M params) open-weight TTS model with
+    20 American English voices.  Requires the espeak-ng system package.
 
-    The TTS model is downloaded on first run and cached locally.
-    Kokoro additionally requires the espeak-ng system package.
+    The model is downloaded from Hugging Face on first run and cached locally.
 
     \b
     Examples:
         reed audiobook --html article.html
-        reed audiobook --html article.html --tts-backend kokoro --voice af_bella
+        reed audiobook --html article.html --voice af_bella
         reed audiobook --md article.md --speed 0.85
         reed audiobook -o out.mp3 --html article.html
         reed audiobook --list-voices
     """
-    # Lazy import — pulls in torch, numpy, soundfile (heavy)
+    # Lazy import — pulls in numpy, soundfile, kokoro (heavy)
     from .outputs import generate_audiobook
 
     # --list-voices just prints the voice table and exits
@@ -289,8 +268,6 @@ def audiobook_cmd(
         generate_audiobook(
             article,
             output_path,
-            device=device,
-            backend=backend,
             voice=voice,
             speed=speed,
         )

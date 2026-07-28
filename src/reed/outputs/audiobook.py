@@ -1,16 +1,16 @@
-"""Generate audiobooks from articles using Chatterbox or Kokoro TTS.
+"""Generate audiobooks from articles using Kokoro-82M TTS.
 
 Install::
 
-    pip install chatterbox-tts kokoro soundfile click numpy
+    pip install kokoro soundfile click numpy
 
-Kokoro additionally requires the ``espeak-ng`` system package::
+Kokoro requires the ``espeak-ng`` system package::
 
     brew install espeak-ng   # macOS
     apt install espeak-ng    # Linux
 
 Audio I/O uses ``soundfile`` (WAV), ``numpy`` (concatenation), and system
-``ffmpeg`` (MP3).  Models are downloaded from Hugging Face on first use
+``ffmpeg`` (MP3).  The model is downloaded from Hugging Face on first use
 and cached by the hub thereafter.
 """
 
@@ -27,7 +27,6 @@ from pathlib import Path
 import click
 import numpy as np
 import soundfile as sf
-import torch
 
 from ..models import Article, SectionType
 
@@ -36,18 +35,14 @@ logger = logging.getLogger(__name__)
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 # ---------------------------------------------------------------------------
-# Constants / model caches
+# Constants / model cache
 # ---------------------------------------------------------------------------
 
-_chatterbox_model: object | None = None  # ChatterboxTTS
 _kokoro_pipeline: object | None = None  # KPipeline
-
-_MAX_CHARS_CHATTERBOX = 400
-_MAX_CHARS_KOKORO = 500
-
+_MAX_CHARS = 500
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
-# Top American English voices for Kokoro (by quality grade)
+# American English voices for Kokoro (by quality grade)
 _KOKORO_VOICES = [
     "af_heart",   # A  ❤️
     "af_bella",   # A- 🔥
@@ -73,90 +68,11 @@ _KOKORO_VOICES = [
 
 
 # ---------------------------------------------------------------------------
-# Device resolution
+# Model loading
 # ---------------------------------------------------------------------------
 
 
-def _resolve_device(device: str) -> str:
-    """Map a user-facing device string to what each backend expects."""
-    d = device.lower().strip()
-    if d in {"cpu", "mps"}:
-        return d
-    if d in {"cuda", "gpu"}:
-        return "cuda"
-    if d.startswith("cuda:"):
-        if d != "cuda:0":
-            logger.warning(
-                "For multi-GPU pin set CUDA_VISIBLE_DEVICES (requested %s).",
-                d,
-            )
-        return "cuda"
-    raise ValueError(f"Unsupported device {device!r}. Use cpu, cuda, or mps.")
-
-
-# ---------------------------------------------------------------------------
-# Chatterbox backend
-# ---------------------------------------------------------------------------
-
-
-def _load_chatterbox_model(device: str = "mps"):
-    """Load (or return cached) Chatterbox TTS model.
-
-    Weights are downloaded from Hugging Face ``ResembleAI/chatterbox`` on
-    first load and cached by the hub thereafter.
-    """
-    from chatterbox.tts import ChatterboxTTS
-
-    global _chatterbox_model
-    if _chatterbox_model is None:
-        device_str = _resolve_device(device)
-        # Fall back to CPU if requested device is MPS but unavailable
-        if (
-            device_str == "mps"
-            and not getattr(torch.backends.mps, "is_available", lambda: False)()
-        ):
-            click.echo("MPS not available — falling back to CPU.")
-            device_str = "cpu"
-        click.echo(f"Loading Chatterbox TTS on {device_str}...")
-        _chatterbox_model = ChatterboxTTS.from_pretrained(device=device_str)
-        click.echo(f"Model loaded (sample rate={_chatterbox_model.sr} Hz).")
-    return _chatterbox_model
-
-
-def _prepare_chatterbox_voice(
-    model: object,
-    *,
-    exaggeration: float = 0.5,
-) -> None:
-    """Attach the built-in default voice conditionals to *model*.
-
-    Uses the checkpoint's shipped default voice (``conds.pt``).
-    No reference audio or voice cloning is used.
-    """
-    from chatterbox.tts import T3Cond
-
-    if model.conds is None:
-        raise ValueError(
-            "This checkpoint has no built-in default voice. "
-            "Try a different Chatterbox checkpoint."
-        )
-    click.echo("Using built-in default Chatterbox voice.")
-    # Update exaggeration on the existing conditionals if needed
-    if hasattr(model.conds, "t3") and exaggeration != 0.5:
-        _cond = model.conds.t3
-        model.conds.t3 = T3Cond(
-            speaker_emb=_cond.speaker_emb,
-            cond_prompt_speech_tokens=_cond.cond_prompt_speech_tokens,
-            emotion_adv=exaggeration * torch.ones(1, 1, 1),
-        ).to(device=model.device)
-
-
-# ---------------------------------------------------------------------------
-# Kokoro backend
-# ---------------------------------------------------------------------------
-
-
-def _load_kokoro_pipeline(device: str = "mps") -> object:
+def _load_kokoro_pipeline() -> object:
     """Load (or return cached) Kokoro TTS pipeline.
 
     Downloads ``hexgrad/Kokoro-82M`` from Hugging Face on first use.
@@ -169,15 +85,18 @@ def _load_kokoro_pipeline(device: str = "mps") -> object:
 
     global _kokoro_pipeline
     if _kokoro_pipeline is None:
-        device_str = _resolve_device(device)
-        if device_str == "mps":
+        # Enable MPS fallback on Apple Silicon
+        if hasattr(os, "uname") and os.uname().sysname == "Darwin":
             os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-        elif device_str == "cuda":
-            click.echo("Kokoro runs on GPU via PyTorch CUDA.")
-        click.echo(f"Loading Kokoro-82M pipeline (lang=en, device={device_str})...")
+        click.echo("Loading Kokoro-82M pipeline (lang=en)...")
         _kokoro_pipeline = KPipeline(lang_code="a")
         click.echo("Kokoro pipeline loaded (sample rate=24000 Hz).")
     return _kokoro_pipeline
+
+
+# ---------------------------------------------------------------------------
+# Speech generation
+# ---------------------------------------------------------------------------
 
 
 def _generate_kokoro_speech(
@@ -201,51 +120,6 @@ def _generate_kokoro_speech(
         raise RuntimeError("Kokoro produced no audio for the given text.")
 
     return 24000, np.concatenate(segments)
-
-
-# ---------------------------------------------------------------------------
-# Speech generation helpers
-# ---------------------------------------------------------------------------
-
-
-def _tensor_to_numpy(wav: torch.Tensor | np.ndarray) -> np.ndarray:
-    """Convert tensor output to mono float32 numpy."""
-    if isinstance(wav, torch.Tensor):
-        wav = wav.detach().float().cpu().numpy()
-    x = np.asarray(wav, dtype=np.float32)
-    if x.ndim > 1:
-        # Chatterbox returns shape (1, T)
-        x = np.squeeze(x, axis=0) if x.shape[0] == 1 else x.mean(axis=0)
-    return x.reshape(-1)
-
-
-def _generate_chatterbox_speech(
-    text: str,
-    model: object,
-    *,
-    exaggeration: float = 0.5,
-    cfg_weight: float = 0.5,
-    temperature: float = 0.8,
-    repetition_penalty: float = 1.2,
-) -> tuple[int, np.ndarray]:
-    """Generate speech for *text* using conditionals already on *model*.
-
-    Returns:
-        ``(sample_rate, audio)`` with audio shape ``(T,)``.
-    """
-    if model.conds is None:
-        raise RuntimeError(
-            "Voice conditionals are not set. Call _prepare_chatterbox_voice first."
-        )
-
-    wav = model.generate(
-        text,
-        exaggeration=exaggeration,
-        cfg_weight=cfg_weight,
-        temperature=temperature,
-        repetition_penalty=repetition_penalty,
-    )
-    return int(model.sr), _tensor_to_numpy(wav)
 
 
 # ---------------------------------------------------------------------------
@@ -430,93 +304,6 @@ def _ffmpeg_metadata_value(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
 
 
-def _build_atempo_filters(speed: float) -> str:
-    """Build a comma-separated chain of ffmpeg ``atempo`` filters.
-
-    Each ``atempo`` accepts values in [0.5, 2.0]; for values outside
-    that range we chain multiple instances.
-    """
-    remaining = speed
-    filters: list[str] = []
-    while remaining < 0.5:
-        filters.append("atempo=0.5")
-        remaining /= 0.5
-    while remaining > 2.0:
-        filters.append("atempo=2.0")
-        remaining /= 2.0
-    filters.append(f"atempo={remaining:.3f}")
-    return ",".join(filters)
-
-
-def _time_stretch(
-    sample_rate: int,
-    audio: np.ndarray,
-    speed: float = 1.0,
-) -> np.ndarray:
-    """Time-stretch *audio* via ffmpeg's ``atempo`` filter.
-
-    Pipes WAV bytes through ffmpeg with the appropriate ``atempo``
-    chain and reads the result back into a numpy array.  The sample
-    rate is preserved.
-
-    Args:
-        sample_rate: Sample rate of the input audio.
-        audio: Mono float32 numpy array.
-        speed: Playback speed multiplier (1.0 = no change,
-               < 1.0 = slower, > 1.0 = faster).
-
-    Returns:
-        Time-stretched mono float32 numpy array at the same sample rate.
-    """
-    if speed == 1.0:
-        return audio
-
-    wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
-    atempo = _build_atempo_filters(speed)
-
-    cmd = [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-f",
-        "wav",
-        "-i",
-        "pipe:0",
-        "-filter:a",
-        atempo,
-        "-f",
-        "wav",
-        "pipe:1",
-    ]
-
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=wav_bytes,
-            capture_output=True,
-            timeout=120,
-        )
-    except FileNotFoundError:
-        raise RuntimeError("ffmpeg is not installed or not on your PATH.") from None
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("ffmpeg timed out during time-stretching.") from None
-
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace")[-800:]
-        raise RuntimeError(f"ffmpeg time-stretch failed:\n{stderr}")
-
-    stretched, out_sr = sf.read(io.BytesIO(proc.stdout))
-    if out_sr != sample_rate:
-        logger.warning(
-            "ffmpeg time-stretch changed sample rate %d → %d — resampling.",
-            sample_rate,
-            out_sr,
-        )
-    return _as_float32_mono(stretched)
-
-
 def _wav_to_mp3(
     sample_rate: int,
     audio: np.ndarray,
@@ -578,16 +365,10 @@ def _wav_to_mp3(
 def generate_audiobook(
     article: Article,
     output_path: Path,
-    device: str = "cpu",
     *,
-    backend: str = "chatterbox",
     voice: str = "af_heart",
-    max_chars: int | None = None,
+    max_chars: int = _MAX_CHARS,
     silence_ms: int = 500,
-    exaggeration: float = 0.5,
-    cfg_weight: float = 0.5,
-    temperature: float = 0.8,
-    repetition_penalty: float = 1.2,
     mp3_bitrate: str = "64k",
     speed: float = 1.0,
     progress_callback: Callable[[int, int, str], None] | None = None,
@@ -596,30 +377,19 @@ def generate_audiobook(
 ) -> Path:
     """Convert an article to spoken audio and save as MP3.
 
-    Supports two local TTS backends:
-
-    * **chatterbox** — ``ResembleAI/chatterbox`` with built-in default voice.
-    * **kokoro** — ``hexgrad/Kokoro-82M`` (82M params, 20 American English
-      voices).  Requires ``espeak-ng`` system package.
+    Uses ``hexgrad/Kokoro-82M`` (82M params, 20 American English voices,
+    Apache-2.0 licensed).  Requires the ``espeak-ng`` system package.
 
     Args:
         article: Structured article with content sections.
         output_path: Destination MP3 path.
-        device: ``cpu``, ``cuda``, or ``mps``.
-        backend: ``"chatterbox"`` (default) or ``"kokoro"``.
-        voice: Kokoro voice pack name (default ``"af_heart"``).  Ignored
-            by Chatterbox.  See ``_KOKORO_VOICES`` for the full list.
-        max_chars: Max characters per TTS chunk.  Defaults to a
-            backend-appropriate value if not set.
+        voice: Kokoro voice pack name (default ``"af_heart"``).
+            See ``_KOKORO_VOICES`` for the full list.
+        max_chars: Max characters per TTS chunk (default 500).
         silence_ms: Silence inserted between chunks.
-        exaggeration: (Chatterbox only) Emotion / intensity.
-        cfg_weight: (Chatterbox only) Classifier-free guidance.
-        temperature: (Chatterbox only) Sampling temperature.
-        repetition_penalty: (Chatterbox only) Token repetition penalty.
         mp3_bitrate: LAME bitrate string, e.g. ``64k``.
-        speed: Playback speed multiplier (default ``1.0``).  For Chatterbox
-            this is applied via ffmpeg ``atempo`` post-processing.  Kokoro
-            applies speed natively during generation.
+        speed: Playback speed multiplier (default ``1.0``).  Applied
+            natively during generation — no ffmpeg post-processing needed.
         progress_callback: Optional callback ``(current, total, message)``
             called after each TTS chunk completes.
         cancel_check: Optional callable that returns ``True`` when
@@ -630,30 +400,8 @@ def generate_audiobook(
     Returns:
         Path to the generated MP3.
     """
-    backend = backend.lower().strip()
-    if backend not in ("chatterbox", "kokoro"):
-        raise ValueError(
-            f"Unknown backend {backend!r}. Choose 'chatterbox' or 'kokoro'."
-        )
+    pipeline = _load_kokoro_pipeline()
 
-    # ------------------------------------------------------------------
-    # Load model / pipeline
-    # ------------------------------------------------------------------
-    if backend == "kokoro":
-        pipeline = _load_kokoro_pipeline(device)
-        if max_chars is None:
-            max_chars = _MAX_CHARS_KOKORO
-        backend_label = f"Kokoro-82M ({voice})"
-    else:
-        model = _load_chatterbox_model(device)
-        _prepare_chatterbox_voice(model, exaggeration=exaggeration)
-        if max_chars is None:
-            max_chars = _MAX_CHARS_CHATTERBOX
-        backend_label = "Chatterbox"
-
-    # ------------------------------------------------------------------
-    # Chunk text
-    # ------------------------------------------------------------------
     chunks = article_text_for_tts(article, max_chars)
     if not chunks:
         raise ValueError("Article has no text content to convert to speech.")
@@ -666,12 +414,9 @@ def generate_audiobook(
 
     click.echo(
         f"\nGenerating audio for {len(chunks)} chunk(s) "
-        f"using {backend_label} ({_resolve_device(device)})..."
+        f"using Kokoro-82M ({voice})..."
     )
 
-    # ------------------------------------------------------------------
-    # Generate speech chunk by chunk
-    # ------------------------------------------------------------------
     audio_chunks: list[tuple[int, np.ndarray]] = []
     failed = False
 
@@ -682,19 +427,9 @@ def generate_audiobook(
     ) as bar:
         for i, chunk in enumerate(chunks, start=1):
             try:
-                if backend == "kokoro":
-                    sr, audio = _generate_kokoro_speech(
-                        chunk, pipeline, voice=voice, speed=speed
-                    )
-                else:
-                    sr, audio = _generate_chatterbox_speech(
-                        chunk,
-                        model,
-                        exaggeration=exaggeration,
-                        cfg_weight=cfg_weight,
-                        temperature=temperature,
-                        repetition_penalty=repetition_penalty,
-                    )
+                sr, audio = _generate_kokoro_speech(
+                    chunk, pipeline, voice=voice, speed=speed
+                )
             except Exception as exc:
                 logger.exception("TTS failed on chunk %s/%s", i, len(chunks))
                 click.echo(
@@ -722,16 +457,8 @@ def generate_audiobook(
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
 
-    # ------------------------------------------------------------------
-    # Concatenate, time-stretch, encode
-    # ------------------------------------------------------------------
     click.echo("\nConcatenating audio chunks...")
     combined_sr, combined_audio = _concat_audio(audio_chunks, silence_ms=silence_ms)
-
-    # Kokoro applies speed natively; only time-stretch for Chatterbox
-    if backend != "kokoro" and speed != 1.0:
-        click.echo(f"Applying speed adjustment: {speed:.2f}×...")
-        combined_audio = _time_stretch(combined_sr, combined_audio, speed=speed)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
