@@ -2,8 +2,8 @@
 
 Convert saved article pages to EPUBs, Markdown, and MP3 audiobooks.
 
-Works with X.com (Twitter) articles/threads, Substack newsletters, and
-saved HTML from any long-form article page.
+Works with saved HTML from Substack, blogs, news sites, and any
+long-form article page.
 
 ## Installation
 
@@ -35,13 +35,13 @@ Commands:
 
 ### EPUB generation
 
-Save any article page from your browser (File → Save As → Webpage, Complete), then:
+Save any article page from your browser (File → Save As → Webpage, HTML Only), then:
 
 ```bash
 reed epub --html article.html
 ```
 
-This works with X.com articles, Substack newsletters, and most long-form
+This works with Substack, blogs, news sites, and most long-form
 article pages. The parser automatically detects the page structure and
 extracts the title, author, date, and body content.
 
@@ -65,7 +65,7 @@ Options:
 Generate a Markdown file from a saved article:
 
 ```bash
-# From a saved HTML file (X.com, Substack, or any article page)
+# From a saved HTML file (Substack, blogs, or any article page)
 reed markdown --html article.html
 
 # From a previously generated Markdown file (round-trip)
@@ -83,7 +83,7 @@ Generate an MP3 audiobook from an article using **Kokoro-82M**
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
 with 20 American English voices, Apache-2.0 licensed.
 
-Works with X.com articles, Substack newsletters, and any saved HTML article page.
+Works with Substack, blogs, news sites, and any saved HTML article page.
 
 #### Prerequisites
 
@@ -197,15 +197,9 @@ Send the EPUB to your Kindle using the Send-to-Kindle app or email.
 
 ## Supported Sources
 
-### X.com (Twitter)
-
-Save the page as HTML from your browser (File → Save As → Webpage, Complete),
-then use `--html`. For long-form X Articles, this is the recommended approach
-since they are JavaScript-rendered.
-
 ### Substack and other article pages
 
-Save the page as HTML from your browser (File → Save As → Webpage, Complete),
+Save the page as HTML from your browser (File → Save As → Webpage, HTML Only),
 then use `--html`:
 
 ```bash
@@ -232,8 +226,8 @@ reed audiobook --md article.md
 
 ## How It Works
 
-1. **Save** the article page from your browser as HTML (File → Save As → Webpage, Complete)
-2. **Extract**: reed parses the HTML — detecting metadata (title, author, date) and the article body using heuristics that work across X.com, Substack, and most CMS platforms
+1. **Save** the article page from your browser as HTML (File → Save As → Webpage, HTML Only)
+2. **Extract**: reed parses the HTML — detecting metadata (title, author, date) and the article body using heuristics that work across Substack, blogs, news sites, and most CMS platforms
 3. **Convert**: the extracted content is converted to your chosen format:
    - **EPUB**: Kindle-optimized ebook with proper metadata, TOC, and styling
    - **Markdown**: HTML body is converted via `markdownify` with a metadata header

@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "reed"
 version = "0.1.0"
-description = "Convert X.com articles to ebooks and audiobooks"
+description = "Convert saved article pages to ebooks and audiobooks"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
