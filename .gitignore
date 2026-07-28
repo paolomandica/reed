@@ -12,8 +12,9 @@ wheels/
 # Generated EPUBs
 *.epub
 
-# HTML files
+# HTML files (saved articles)
 *.html
+!src/reed/static/index.html
 
 # Data folders
 epubs
