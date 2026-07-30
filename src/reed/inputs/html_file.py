@@ -5,6 +5,7 @@ long-form article pages through heuristics rather than site-specific
 selectors where possible.
 """
 
+import json
 import re
 import logging
 from pathlib import Path
@@ -49,6 +50,40 @@ def normalize_ws(text: str) -> str:
 def cleanup_text(text: str) -> str:
     text = normalize_ws(text)
     return re.sub(r"\s+([,.;:!?])", r"\1", text)
+
+
+def is_prose_preformatted_text(text: str) -> bool:
+    """Return whether a ``<pre>`` block is prose rather than source code."""
+    normalized = cleanup_text(text)
+    words = normalized.split()
+    if len(words) < 20:
+        return False
+
+    code_markers = len(re.findall(
+        r"(?:[{};]|\b(?:def|class|function|return|import|SELECT|FROM)\b|^\s*(?:#include|\$|>>>))",
+        text,
+        re.IGNORECASE | re.MULTILINE,
+    ))
+    sentence_endings = len(re.findall(r"[.!?](?:\s|$)", normalized))
+    return sentence_endings >= 2 and code_markers * 3 < len(words)
+
+
+def _normalise_prose_pre_blocks(root: Tag) -> None:
+    """Convert prose-only legacy blocks to paragraphs for downstream use."""
+    for pre in root.find_all("pre"):
+        if is_prose_preformatted_text(pre.get_text("\n", strip=True)):
+            pre.name = "p"
+            pre.attrs = {}
+
+    # Older essay sites frequently put the complete article in a font tag.
+    # Convert only outer, article-length font containers; nested font tags are
+    # typically footnote styling and remain part of the prose.
+    for font in root.find_all("font"):
+        if _has_ancestor(font, "font"):
+            continue
+        if is_prose_preformatted_text(font.get_text(" ", strip=True)):
+            font.name = "p"
+            font.attrs = {}
 
 
 def _has_ancestor(node: Tag, tag_name: str | set[str]) -> bool:
@@ -138,6 +173,36 @@ def find_title(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _structured_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
+    """Extract an Article/NewsArticle author from JSON-LD metadata."""
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            data = json.loads(script.string or script.get_text())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        nodes = data if isinstance(data, list) else [data]
+        for node in nodes:
+            if isinstance(node, dict) and isinstance(node.get("@graph"), list):
+                nodes.extend(node["@graph"])
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            node_type = node.get("@type", "")
+            types = set(node_type if isinstance(node_type, list) else [node_type])
+            if not types & {"Article", "NewsArticle", "BlogPosting"}:
+                continue
+            author = node.get("author")
+            authors = author if isinstance(author, list) else [author]
+            for candidate in authors:
+                if isinstance(candidate, dict):
+                    name = cleanup_text(str(candidate.get("name", "")))
+                    if name:
+                        return name, None
+                elif isinstance(candidate, str) and not re.match(r"https?://", candidate):
+                    return cleanup_text(candidate), None
+    return None, None
+
+
 def find_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
     """Try to find the author name and handle from the HTML.
 
@@ -146,7 +211,12 @@ def find_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
     Handles X.com (data-testid, @handle links) and Substack
     (profile-link aria-labels, byline text).
     """
-    # 1. Meta tags (works for both X.com and generic)
+    # 1. Structured metadata carries the display name on many news sites.
+    structured_author = _structured_author(soup)
+    if structured_author[0]:
+        return structured_author
+
+    # 2. Meta tags (works for both X.com and generic)
     selectors = [
         {"name": "author"},
         {"property": "article:author"},
@@ -159,6 +229,10 @@ def find_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
             if content:
                 if content.startswith("@"):
                     return (content[1:], content[1:])
+                # Some publishers place a contributor-profile URL here;
+                # continue to the visible byline instead of narrating it.
+                if re.match(r"https?://", content, re.IGNORECASE):
+                    continue
                 return (content, None)
 
     # 2. X.com: data-testid="User-Name" block
@@ -203,9 +277,13 @@ def find_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
                     if name_part and len(name_part.split()) <= 4:
                         return (name_part, None)
 
-    # 5. Generic fallback: @handle link
+    # 5. Generic fallback: profile paths and @handle links
     for a in soup.find_all("a", href=True):
         href = a["href"]
+        profile_match = re.match(r"^/user/([A-Za-z0-9_]+)/?$", href)
+        if profile_match:
+            handle = profile_match.group(1)
+            return (handle, handle)
         match = re.match(r"^/([A-Za-z0-9_]+)/?$", href)
         if match:
             handle = match.group(1)
@@ -320,11 +398,11 @@ def find_content_root(soup: BeautifulSoup) -> Tag:
         node = soup.find(attrs={"role": role})
         if node:
             return node
-    for tag in ["article", "main"]:
-        node = soup.find(tag)
-        if node:
-            return node
-    candidates = [n for n in soup.find_all(["div", "section"]) if cleanup_text(n.get_text(" ", strip=True))]
+    candidates = [
+        node
+        for node in soup.find_all(["article", "main", "div", "section"])
+        if cleanup_text(node.get_text(" ", strip=True))
+    ]
     return max(candidates, key=score_candidate) if candidates else (soup.body or soup)
 
 
@@ -350,7 +428,18 @@ def find_body_root(content_root: Tag) -> Tag:
         if node:
             return node
 
-    # 3. Heuristic: find the child div with the most <p> density
+    # 3. Legacy essay sites often use a large <font> container with <br>
+    # separators instead of semantic paragraphs. Prefer that prose block over
+    # surrounding table-based navigation when it is clearly article-length.
+    prose_fonts = [
+        font
+        for font in content_root.find_all("font")
+        if is_prose_preformatted_text(font.get_text(" ", strip=True))
+    ]
+    if prose_fonts:
+        return max(prose_fonts, key=lambda font: len(cleanup_text(font.get_text(" ", strip=True))))
+
+    # 4. Heuristic: find the child div with the most <p> density
     best = None
     best_score = 0
     for div in content_root.find_all("div", recursive=True):
@@ -373,6 +462,35 @@ def _decompose_non_content(root: Tag) -> None:
     Strips headers, comment sections, engagement UIs, and footer
     widgets so they don't contaminate extracted content.
     """
+    # Blog index cards can accompany the full post in an otherwise valid
+    # content container. The post title is already captured as metadata.
+    for section in list(root.find_all("section", id=True)):
+        if "newslist" in section.get("id", "").lower():
+            section.decompose()
+
+    # Disqus embeds leave static promotional links in saved HTML.
+    for el in list(root.find_all(id=True)):
+        if el.attrs and "disqus" in el.get("id", "").lower():
+            el.decompose()
+    for el in list(root.find_all(class_=True)):
+        if not el.attrs:
+            continue
+        classes = " ".join(el.get("class", [])).lower()
+        if "disqus" in classes or "dsq-" in classes:
+            el.decompose()
+
+    # Compact author/time/view headers are metadata, not article prose.
+    for el in list(root.find_all(["span", "div"], class_=True)):
+        if not el.attrs:
+            continue
+        classes = set(el.get("class", []))
+        text = cleanup_text(el.get_text(" ", strip=True)).lower()
+        has_profile_link = bool(el.find("a", href=re.compile(r"^/user/")))
+        if "info" in classes and has_profile_link and re.search(
+            r"\b(?:views?|ago|comments?)\b", text
+        ):
+            el.decompose()
+
     # Post header region (Substack / generic)
     for el in root.find_all(attrs={"role": "region"}):
         label = el.get("aria-label", "").lower()
@@ -505,6 +623,8 @@ def has_nested_block(node: Tag) -> bool:
 def is_leaf_block(node: Tag) -> bool:
     if node.name in SEMANTIC_BLOCKS:
         return True
+    if node.name == "pre":
+        return is_prose_preformatted_text(node.get_text("\n", strip=True))
     if node.name in GENERIC_BLOCKS:
         return not has_nested_block(node)
     return False
@@ -635,14 +755,17 @@ def extract_from_html(html_path: Path) -> Article:
     html = html_path.read_text(encoding="utf-8")
     soup = BeautifulSoup(html, "html.parser")
 
-    # Strip unwanted tags globally
+    # Read JSON-LD author metadata before removing scripts.
+    author_name, author_handle = find_author(soup)
+    author = author_name or "Unknown"
+    handle = author_handle or ""
+
+    # Strip unwanted tags before title fallback so site-brand headers cannot
+    # outrank the document title.
     for tag in soup.find_all(SKIP_TAGS):
         tag.decompose()
 
     title = find_title(soup) or html_path.stem
-    author_name, author_handle = find_author(soup)
-    author = author_name or "Unknown"
-    handle = author_handle or ""
     date = find_date(soup)
     description = find_description(soup) or ""
     lang = (soup.html.get("lang") if soup.html else None) or "en"
@@ -651,8 +774,10 @@ def extract_from_html(html_path: Path) -> Article:
     content_root = find_content_root(soup)
     body_root = find_body_root(content_root)
 
-    # Strip non-content regions from the body root
+    # Strip non-content regions from the body root and turn prose-only
+    # preformatted blocks into paragraphs before markdownify sees them.
     _decompose_non_content(body_root)
+    _normalise_prose_pre_blocks(body_root)
 
     # Store the raw HTML body for downstream markdownify usage
     html_body = str(body_root)

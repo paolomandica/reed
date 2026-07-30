@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from html import escape
 from pathlib import Path
 
 from markdownify import markdownify as md
@@ -65,7 +66,7 @@ def _build_metadata_header(article: Article) -> str:
     lines: list[str] = []
 
     # Title
-    lines.append(f"# {meta.title}\n")
+    lines.append(f"# {escape(meta.title)}\n")
 
     # Author + date line
     byline_parts = [f"*By {meta.author}"]

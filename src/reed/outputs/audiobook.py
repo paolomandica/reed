@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
@@ -150,64 +151,99 @@ def _generate_kokoro_speech(
 # ---------------------------------------------------------------------------
 
 
-def article_text_for_tts(article: Article, max_chars: int) -> list[str]:
-    """Build TTS text chunks from an article's sections.
+@dataclass(frozen=True)
+class NarrationSegment:
+    """A TTS input chunk and the pause to append after it."""
 
-    Each chunk respects *max_chars* and starts at a section boundary when
-    possible (heading, paragraph, etc.).
+    text: str
+    pause_after_ms: int
+
+
+def _with_terminal_punctuation(text: str) -> str:
+    text = text.strip()
+    return text if text.endswith((".", "!", "?", "…")) else f"{text}."
+
+
+def _is_duplicate_title(text: str, title: str) -> bool:
+    return text.casefold().rstrip(".!?…") == title.casefold().rstrip(".!?…")
+
+
+def narration_segments_for_tts(
+    article: Article,
+    max_chars: int,
+    *,
+    silence_ms: int = 500,
+) -> list[NarrationSegment]:
+    """Build boundary-aware TTS segments from article metadata and content.
+
+    Logical article units are never merged. Oversized units are split at
+    sentence or word boundaries, but only their final part receives the
+    unit's pause so a long paragraph remains continuous.
     """
-    chunks: list[str] = []
-    current: list[str] = []
-    current_len = 0
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero")
 
-    def _flush() -> None:
-        nonlocal current, current_len
-        if current:
-            chunks.append(" ".join(current))
-            current = []
-            current_len = 0
+    normal_pause = max(0, silence_ms)
+    long_pause = normal_pause * 2
+    short_pause = normal_pause // 2
+    units: list[tuple[str, int]] = []
+
+    title = article.metadata.title.strip()
+    if title:
+        units.append((_with_terminal_punctuation(title), long_pause))
+
+    author = article.metadata.author.strip()
+    if author and author.casefold() != "unknown":
+        units.append((_with_terminal_punctuation(f"By {author}"), long_pause))
 
     for section in article.sections:
         text = section.text.strip()
         if not text:
             continue
-
-        if section.type in (SectionType.HEADING, SectionType.TITLE):
-            prefix = text if text.endswith((".", "!", "?", "…")) else f"{text}."
-        elif section.type == SectionType.BLOCKQUOTE:
-            prefix = f"Quote: {text}"
-        else:
-            prefix = text
-
-        if len(prefix) > max_chars:
-            _flush()
-            chunks.extend(_split_long_text(prefix, max_chars))
+        if (
+            title
+            and section.type in (SectionType.TITLE, SectionType.HEADING)
+            and _is_duplicate_title(text, title)
+        ):
             continue
 
-        if current and current_len + len(prefix) + 1 > max_chars:
-            _flush()
+        if section.type in (SectionType.HEADING, SectionType.TITLE):
+            units.append((_with_terminal_punctuation(text), long_pause))
+        elif section.type == SectionType.BLOCKQUOTE:
+            units.append((f"Quote: {text}", normal_pause))
+        elif section.type == SectionType.LIST_ITEM:
+            units.append((text, short_pause))
+        else:
+            units.append((text, normal_pause))
 
-        current.append(prefix)
-        current_len += len(prefix) + (1 if current_len else 0)
+    segments: list[NarrationSegment] = []
+    for text, pause_after_ms in units:
+        chunks = _split_long_text(text, max_chars)
+        for index, chunk in enumerate(chunks):
+            segments.append(
+                NarrationSegment(
+                    text=chunk,
+                    pause_after_ms=pause_after_ms if index == len(chunks) - 1 else 0,
+                )
+            )
+    return segments
 
-    _flush()
-    return chunks
+
+def article_text_for_tts(article: Article, max_chars: int) -> list[str]:
+    """Return the narration text chunks for callers that do not need pacing."""
+    return [segment.text for segment in narration_segments_for_tts(article, max_chars)]
 
 
 def _split_long_text(text: str, max_chars: int) -> list[str]:
-    """Split long text into sentence-aware chunks ≤ *max_chars*."""
+    """Split long text into sentence-aware chunks no longer than *max_chars*."""
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero")
+
     text = " ".join(text.split())
     if len(text) <= max_chars:
-        return [text]
+        return [text] if text else []
 
-    raw_parts = [p.strip() for p in _SENTENCE_RE.split(text) if p and p.strip()]
-    sentences: list[str] = []
-    for part in raw_parts:
-        if sentences and part in {".", "!", "?", "…"}:
-            sentences[-1] = sentences[-1] + part
-        else:
-            sentences.append(part)
-
+    sentences = [part.strip() for part in _SENTENCE_RE.split(text) if part.strip()]
     if not sentences:
         return _split_by_words(text, max_chars)
 
@@ -239,6 +275,9 @@ def _split_long_text(text: str, max_chars: int) -> list[str]:
 
 def _split_by_words(text: str, max_chars: int) -> list[str]:
     """Last-resort word wrap so no chunk exceeds *max_chars*."""
+    if max_chars <= 0:
+        raise ValueError("max_chars must be greater than zero")
+
     words = text.split()
     if not words:
         return []
@@ -269,7 +308,6 @@ def _split_by_words(text: str, max_chars: int) -> list[str]:
         chunks.append(" ".join(current))
     return chunks
 
-
 # ---------------------------------------------------------------------------
 # Audio helpers (numpy + ffmpeg)
 # ---------------------------------------------------------------------------
@@ -297,22 +335,27 @@ def _as_float32_mono(audio: np.ndarray) -> np.ndarray:
 
 
 def _concat_audio(
-    audio_chunks: list[tuple[int, np.ndarray]],
+    audio_chunks: list[tuple[int, np.ndarray] | tuple[int, np.ndarray, int]],
     silence_ms: int = 500,
 ) -> tuple[int, np.ndarray]:
+    """Concatenate audio, honoring an optional pause on each chunk."""
     if not audio_chunks:
         raise ValueError("No audio chunks to concatenate.")
 
-    sr0, _ = audio_chunks[0]
-    silence = _make_silence(silence_ms, sr0, np.float32)
+    sr0 = audio_chunks[0][0]
     parts: list[np.ndarray] = []
 
-    for i, (ch_sr, ch_audio) in enumerate(audio_chunks):
+    for index, chunk in enumerate(audio_chunks):
+        ch_sr, ch_audio = chunk[0], chunk[1]
         if ch_sr != sr0:
-            raise ValueError(f"Chunk {i} has different sample rate: {ch_sr} vs {sr0}")
+            raise ValueError(f"Chunk {index} has different sample rate: {ch_sr} vs {sr0}")
         parts.append(_as_float32_mono(ch_audio))
-        if i < len(audio_chunks) - 1 and silence_ms > 0:
-            parts.append(silence)
+
+        if index == len(audio_chunks) - 1:
+            continue
+        pause_ms = chunk[2] if len(chunk) == 3 else silence_ms
+        if pause_ms > 0:
+            parts.append(_make_silence(pause_ms, sr0, np.float32))
 
     return sr0, np.concatenate(parts)
 
@@ -497,38 +540,40 @@ def generate_audiobook(
     """
     pipeline = _load_kokoro_pipeline()
 
-    chunks = article_text_for_tts(article, max_chars)
-    if not chunks:
+    segments = narration_segments_for_tts(
+        article, max_chars, silence_ms=silence_ms
+    )
+    if not segments:
         raise ValueError("Article has no text content to convert to speech.")
 
-    if max_chunks > 0 and len(chunks) > max_chunks:
+    if max_chunks > 0 and len(segments) > max_chunks:
         click.echo(
-            f"Test mode: limiting to first {max_chunks} of {len(chunks)} chunks."
+            f"Test mode: limiting to first {max_chunks} of {len(segments)} chunks."
         )
-        chunks = chunks[:max_chunks]
+        segments = segments[:max_chunks]
 
     click.echo(
-        f"\nGenerating audio for {len(chunks)} chunk(s) "
+        f"\nGenerating audio for {len(segments)} chunk(s) "
         f"using Kokoro-82M ({voice})..."
     )
 
-    audio_chunks: list[tuple[int, np.ndarray]] = []
+    audio_chunks: list[tuple[int, np.ndarray, int]] = []
     failed = False
 
     with click.progressbar(
-        length=len(chunks),
+        length=len(segments),
         label="Generating audio",
         show_pos=True,
     ) as bar:
-        for i, chunk in enumerate(chunks, start=1):
+        for i, segment in enumerate(segments, start=1):
             try:
                 sr, audio = _generate_kokoro_speech(
-                    chunk, pipeline, voice=voice, speed=speed
+                    segment.text, pipeline, voice=voice, speed=speed
                 )
             except Exception as exc:
-                logger.exception("TTS failed on chunk %s/%s", i, len(chunks))
+                logger.exception("TTS failed on chunk %s/%s", i, len(segments))
                 click.echo(
-                    f"\nError on chunk {i}/{len(chunks)}: {exc}",
+                    f"\nError on chunk {i}/{len(segments)}: {exc}",
                     err=True,
                 )
                 if i == 1:
@@ -540,14 +585,14 @@ def generate_audiobook(
                 failed = True
                 break
 
-            audio_chunks.append((sr, audio))
+            audio_chunks.append((sr, audio, segment.pause_after_ms))
             bar.update(1)
             if progress_callback:
-                progress_callback(i, len(chunks), "Generating audio…")
+                progress_callback(i, len(segments), "Generating audio…")
             if cancel_check and cancel_check():
                 click.echo("\nGeneration cancelled by user.")
                 raise RuntimeError("cancelled")
-            click.echo(f"  Chunk {i}/{len(chunks)} done")
+            click.echo(f"  Chunk {i}/{len(segments)} done")
 
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
