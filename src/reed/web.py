@@ -6,6 +6,7 @@ audiobooks, and Markdown files.  Run with ``reed web``.
 Routes:
     GET  /                   Serve the static frontend
     GET  /api/models         List available TTS models
+    GET  /api/preview        Short cached voice sample (voice, speed)
     POST /api/generate       Start generation, return task ID
     GET  /api/task/<id>      Poll task status / progress
     GET  /api/download/<id>  Download completed file
@@ -35,6 +36,10 @@ STATIC_DIR = _HERE / "static"
 
 _task_store: dict[str, dict] = {}
 _task_lock = threading.Lock()
+
+# Serializes voice-preview synthesis so concurrent requests don't load the
+# model or write the same cache file twice.
+_preview_lock = threading.Lock()
 
 
 def _make_progress_callback(task_id: str):
@@ -340,6 +345,44 @@ def create_app(debug: bool = False) -> Flask:
                 "voices": _KOKORO_VOICES,
             }
         )
+
+    @app.route("/api/preview")
+    def preview_voice():
+        """Return a short cached sample clip for a voice at a given speed.
+
+        Query params:
+          - voice: Kokoro voice name (must be a known voice)
+          - speed: playback speed, 0.5–2.0 (default 1.0)
+
+        The clip is a fixed sentence, so once generated it is cached on disk
+        and reused on subsequent requests.
+        """
+        try:
+            from .outputs.audiobook import _KOKORO_VOICES, generate_voice_preview
+        except ImportError as exc:
+            return jsonify({"error": f"audiobook support unavailable: {exc}"}), 503
+
+        voice = (request.args.get("voice") or "af_heart").strip()
+        if voice not in _KOKORO_VOICES:
+            return jsonify({"error": f"unknown voice: {voice}"}), 400
+
+        try:
+            speed = float((request.args.get("speed") or "1.0").strip())
+        except (ValueError, TypeError):
+            return jsonify({"error": "speed must be a number"}), 400
+        if speed < 0.5 or speed > 2.0:
+            return jsonify({"error": "speed must be between 0.5 and 2.0"}), 400
+
+        try:
+            with _preview_lock:
+                clip_path = generate_voice_preview(voice, speed=speed)
+        except Exception as exc:  # noqa: BLE001 — surface any synthesis failure
+            logger.exception("Voice preview failed for %s @ %sx", voice, speed)
+            return jsonify({"error": str(exc)}), 500
+
+        resp = send_file(clip_path, mimetype="audio/mpeg", conditional=True)
+        resp.headers["Cache-Control"] = "public, max-age=86400"
+        return resp
 
     @app.route("/api/generate", methods=["POST"])
     def generate():

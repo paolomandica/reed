@@ -389,6 +389,7 @@ textarea::placeholder {
   margin-bottom: 0.25rem;
 }
 .voice-card {
+  position: relative;
   padding: 0.9rem 0.5rem;
   border: 2px solid var(--border);
   border-radius: var(--radius-sm);
@@ -421,6 +422,61 @@ textarea::placeholder {
   line-height: 1.3;
 }
 .voice-card.selected .voice-desc { color: var(--accent); }
+
+/* preview play button (top-right of each voice card) */
+.voice-preview {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--accent);
+  font-size: 0.7rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+  padding-left: 0.1em; /* optically center the ▶ glyph */
+  transition: all 0.2s;
+  z-index: 2;
+}
+.voice-preview:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  transform: scale(1.08);
+}
+.voice-preview.loading {
+  padding-left: 0;
+  color: transparent;
+  pointer-events: none;
+}
+.voice-preview.loading::after {
+  content: "";
+  position: absolute;
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid var(--accent-glow);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+.voice-preview.playing {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  padding-left: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 500px) {
+  .voice-preview { top: 50%; right: 0.6rem; transform: translateY(-50%); }
+  .voice-preview:hover { transform: translateY(-50%) scale(1.08); }
+}
 
 /* ---- speed pills ---- */
 .speed-pills {

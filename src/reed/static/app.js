@@ -149,6 +149,7 @@ function showError(msg) {
 function resetForm() {
   hideAllAreas();
   clearFieldErrors();
+  stopPreview();
   setFormEnabled(true);
   voiceCards.querySelector(".selected")?.classList.remove("selected");
   voiceCards.querySelector('[data-voice="af_heart"]')?.classList.add("selected");
@@ -213,6 +214,14 @@ formatCards.addEventListener("click", (e) => {
 
 // ---- Voice card selection -------------------------------------------------
 voiceCards.addEventListener("click", (e) => {
+  // Preview buttons live inside the cards — handle them first so tapping ▶
+  // auditions a voice without changing the selection.
+  const previewBtn = e.target.closest(".voice-preview");
+  if (previewBtn) {
+    togglePreview(previewBtn);
+    return;
+  }
+
   const card = e.target.closest(".voice-card");
   if (!card || card.classList.contains("selected")) return;
 
@@ -233,6 +242,62 @@ speedPills.addEventListener("click", (e) => {
   speedPills.querySelectorAll(".speed-pill").forEach(p => p.classList.remove("active"));
   pill.classList.add("active");
   speedInput.value = pill.dataset.speed;
+});
+
+// ---- Voice preview --------------------------------------------------------
+const previewAudio = new Audio();
+let activePreviewBtn = null;
+// Bumped on every start/stop; media events from a superseded clip carry a
+// stale token and are ignored (clearing src can fire a late `error` event).
+let previewToken = 0;
+
+function resetPreviewBtn(btn) {
+  if (!btn) return;
+  btn.classList.remove("loading", "playing");
+  btn.textContent = "▶";
+}
+
+function stopPreview() {
+  previewToken++;
+  previewAudio.pause();
+  previewAudio.removeAttribute("src");
+  resetPreviewBtn(activePreviewBtn);
+  activePreviewBtn = null;
+}
+
+function togglePreview(btn) {
+  // Clicking the button that's already playing/loading stops it.
+  if (btn === activePreviewBtn) {
+    stopPreview();
+    return;
+  }
+
+  stopPreview();
+  const token = ++previewToken;
+  activePreviewBtn = btn;
+  btn.classList.add("loading");
+
+  const voice = btn.dataset.voice;
+  const speed = speedInput.value;
+  previewAudio.src = `/api/preview?voice=${encodeURIComponent(voice)}&speed=${encodeURIComponent(speed)}`;
+  previewAudio.play().catch(() => {
+    // play() rejects if the fetch failed or the tab blocked autoplay.
+    if (token !== previewToken) return;
+    resetPreviewBtn(btn);
+    activePreviewBtn = null;
+  });
+}
+
+previewAudio.addEventListener("playing", () => {
+  if (!activePreviewBtn) return;
+  activePreviewBtn.classList.remove("loading");
+  activePreviewBtn.classList.add("playing");
+  activePreviewBtn.textContent = "❚❚";
+});
+previewAudio.addEventListener("ended", stopPreview);
+previewAudio.addEventListener("error", () => {
+  resetPreviewBtn(activePreviewBtn);
+  activePreviewBtn = null;
 });
 
 // Keyboard activation for card-style radio controls
@@ -302,6 +367,7 @@ async function doGenerate() {
   if (!validate()) return;
 
   state = "generating";
+  stopPreview();
   clearFieldErrors();
   setFormEnabled(false);
 
