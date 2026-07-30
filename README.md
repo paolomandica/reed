@@ -144,9 +144,18 @@ Options:
   --help                   Show this message
 ```
 
-The article text is automatically split into chunks. Audio chunks are
-concatenated with a 0.5-second pause between sections and exported as a
-64 kbps MP3. Speed is applied natively during generation.
+The article text is split at natural narration boundaries and exported as a
+64 kbps MP3. Titles, author credits, headings, paragraphs, and list items use
+appropriately paced transitions; speed is applied natively during generation.
+
+When the input is Markdown, reed supports its own metadata header and common
+article Markdown. It recognizes an initial title (including `# Title: ...`),
+leading author/date/source fields, headings, lists, blockquotes, links, and
+image alt text. Audiobooks begin with the title and author, omit dates and
+source URLs, retain link labels rather than URLs, and skip code blocks, inline
+code, and tables. Embedded HTML is sanitized and normalized to Markdown, so
+its prose, headings, lists, and image alt text are retained while scripts,
+navigation, embeds, and other non-content elements are discarded.
 
 ### Web Interface
 
