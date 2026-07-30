@@ -110,18 +110,18 @@ reed audiobook --html article.html --speed 1.25   # faster
 reed audiobook -o my-article.mp3 --html article.html
 
 # From a Markdown file
-reed audiobook --md article.md --voice af_nicole
+reed audiobook --md article.md --voice am_puck
 ```
 
 #### Voices
 
-Kokoro-82M includes 20 American English voices. Top picks by quality:
+Kokoro-82M includes 20 American English voices. The three featured in the web interface:
 
 | Voice | Grade | Character |
 |-------|-------|-----------|
 | `af_heart` | A | ❤️ Warm, natural |
 | `af_bella` | A- | 🔥 Expressive |
-| `af_nicole` | B- | 🎧 Clear, balanced |
+| `am_puck` | C+ | 🎧 Clear, balanced |
 
 Use `reed audiobook --list-voices` for the full list.
 

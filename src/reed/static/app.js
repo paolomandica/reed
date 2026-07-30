@@ -25,6 +25,7 @@ const formatInput      = document.getElementById("format-input");
 const audiobookOptions = document.getElementById("audiobook-options");
 const voiceCards       = document.getElementById("voice-cards");
 const voiceInput       = document.getElementById("voice-input");
+const voiceHint        = document.getElementById("voice-hint");
 const testModeGroup    = document.getElementById("test-mode-group");
 const testModeCheck    = document.getElementById("test-mode-check");
 const speedPills       = document.getElementById("speed-pills");
@@ -52,8 +53,48 @@ async function fetchConfig() {
     const cfg = await res.json();
     debugMode = cfg.debug || false;
     testModeGroup.classList.toggle("hidden", !debugMode);
+    if (debugMode) loadAllVoices();
   } catch (_) {}
 }
+
+// In debug mode, replace the 3 curated voice cards with every Kokoro voice
+// so all 20 can be auditioned to pick favourites for the normal-mode UI.
+async function loadAllVoices() {
+  try {
+    const res = await fetch("/api/models");
+    if (!res.ok) return;
+    const { catalog } = await res.json();
+    if (!Array.isArray(catalog) || !catalog.length) return;
+    renderVoiceCards(catalog);
+  } catch (_) {}
+}
+
+function renderVoiceCards(catalog) {
+  const current = voiceInput.value;
+  const hasCurrent = catalog.some(v => v.id === current);
+  voiceCards.classList.add("debug");
+  voiceCards.innerHTML = catalog.map((v, i) => {
+    const icon = v.gender === "male" ? "👨" : "👩";
+    // Fall back to the first voice if the current selection isn't listed.
+    const selected = hasCurrent ? v.id === current : i === 0;
+    if (selected) voiceInput.value = v.id;
+    const grade = v.grade ? `<div class="voice-grade">Grade ${v.grade}</div>` : "";
+    return `
+      <div class="voice-card${selected ? " selected" : ""}" data-voice="${v.id}"
+           role="radio" aria-checked="${selected}" tabindex="0">
+        <button type="button" class="voice-preview" data-voice="${v.id}"
+                aria-label="Preview voice ${v.id}" title="Preview this voice">▶</button>
+        <span class="voice-icon" aria-hidden="true">${icon}</span>
+        <div class="voice-desc">${v.id}</div>
+        ${grade}
+      </div>`;
+  }).join("");
+  if (voiceHint) {
+    voiceHint.textContent =
+      `Debug mode — all ${catalog.length} Kokoro voices. Tap ▶ to audition each and note your top 3.`;
+  }
+}
+
 fetchConfig();
 
 // ---- Helpers --------------------------------------------------------------

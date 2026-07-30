@@ -473,6 +473,28 @@ textarea::placeholder {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* debug mode: every Kokoro voice in a dense, scrollable grid */
+.voice-cards.debug {
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 0.5rem;
+  max-height: 336px;
+  overflow-y: auto;
+  padding: 0.2rem;
+}
+.voice-cards.debug .voice-card { padding: 0.7rem 0.4rem; }
+.voice-cards.debug .voice-icon { font-size: 1.35rem; margin-bottom: 0.15rem; }
+.voice-cards.debug .voice-desc {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+.voice-grade {
+  font-size: 0.7rem;
+  color: var(--text-mid);
+  margin-top: 0.1rem;
+}
+.voice-card.selected .voice-grade { color: var(--accent); }
+
 @media (max-width: 500px) {
   .voice-preview { top: 50%; right: 0.6rem; transform: translateY(-50%); }
   .voice-preview:hover { transform: translateY(-50%) scale(1.08); }

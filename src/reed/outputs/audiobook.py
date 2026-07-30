@@ -42,29 +42,52 @@ _kokoro_pipeline: object | None = None  # KPipeline
 _MAX_CHARS = 500
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 
-# American English voices for Kokoro (by quality grade)
-_KOKORO_VOICES = [
-    "af_heart",   # A  ❤️
-    "af_bella",   # A- 🔥
-    "af_nicole",  # B- 🎧
-    "af_aoede",   # C+
-    "af_kore",    # C+
-    "af_sarah",   # C+
-    "af_alloy",   # C
-    "af_nova",    # C
-    "af_sky",     # C-
-    "af_jessica", # D
-    "af_river",   # D
-    "am_adam",    # F+
-    "am_fenrir",  # C+
-    "am_michael", # C+
-    "am_puck",    # C+
-    "am_echo",    # D
-    "am_eric",    # D
-    "am_liam",    # D
-    "am_onyx",    # D
-    "am_santa",   # D-
-]
+# Fixed sentence used for voice previews so the audio can be cached and
+# reused across requests (same voice + speed → identical clip).
+_PREVIEW_TEXT = (
+    "Hello — this is a preview of how your audiobook will sound. "
+    "Pick the voice you like best."
+)
+
+# American English voices for Kokoro, with Hugging Face quality grades.
+# af_ = American female, am_ = American male.  Insertion order is quality order.
+_KOKORO_VOICE_GRADES: dict[str, str] = {
+    "af_heart":   "A",
+    "af_bella":   "A-",
+    "af_nicole":  "B-",
+    "af_aoede":   "C+",
+    "af_kore":    "C+",
+    "af_sarah":   "C+",
+    "af_alloy":   "C",
+    "af_nova":    "C",
+    "af_sky":     "C-",
+    "af_jessica": "D",
+    "af_river":   "D",
+    "am_fenrir":  "C+",
+    "am_michael": "C+",
+    "am_puck":    "C+",
+    "am_echo":    "D",
+    "am_eric":    "D",
+    "am_liam":    "D",
+    "am_onyx":    "D",
+    "am_santa":   "D-",
+    "am_adam":    "F+",
+}
+
+# Flat list of voice IDs (used for validation and as the default ordering).
+_KOKORO_VOICES = list(_KOKORO_VOICE_GRADES)
+
+
+def kokoro_voice_catalog() -> list[dict[str, str]]:
+    """Return structured metadata for every voice: id, grade, and gender."""
+    return [
+        {
+            "id": voice_id,
+            "grade": grade,
+            "gender": "female" if voice_id.startswith("af_") else "male",
+        }
+        for voice_id, grade in _KOKORO_VOICE_GRADES.items()
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +378,78 @@ def _wav_to_mp3(
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace")[-800:]
         raise RuntimeError(f"ffmpeg failed:\n{stderr}")
+
+
+# ---------------------------------------------------------------------------
+# Voice preview (short, cached sample clip)
+# ---------------------------------------------------------------------------
+
+
+def _preview_cache_dir() -> Path:
+    """Return the on-disk cache directory for voice-preview clips.
+
+    Honors ``XDG_CACHE_HOME``; falls back to ``~/.cache``.  Created on demand.
+    """
+    base = os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache")
+    cache_dir = Path(base) / "reed" / "voice-previews"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir
+
+
+def generate_voice_preview(
+    voice: str = "af_heart",
+    *,
+    speed: float = 1.0,
+    cache_dir: Path | None = None,
+) -> Path:
+    """Synthesize a short sample clip for *voice* at *speed*, cached on disk.
+
+    A fixed sentence (:data:`_PREVIEW_TEXT`) is narrated so the result is
+    deterministic and can be reused: the clip is written once to the preview
+    cache and returned directly on subsequent calls with the same
+    ``(voice, speed)`` pair — no re-generation.
+
+    Args:
+        voice: Kokoro voice pack name (see :data:`_KOKORO_VOICES`).
+        speed: Playback speed multiplier (applied natively during synthesis).
+        cache_dir: Override the cache directory (defaults to
+            :func:`_preview_cache_dir`).
+
+    Returns:
+        Path to the cached MP3 clip.
+    """
+    if cache_dir is None:
+        cache_dir = _preview_cache_dir()
+    else:
+        cache_dir = Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cache_path = cache_dir / f"{voice}_{speed:.2f}.mp3"
+    if cache_path.exists() and cache_path.stat().st_size > 0:
+        logger.debug("Voice preview cache hit: %s", cache_path.name)
+        return cache_path
+
+    logger.debug("Voice preview cache miss, synthesizing: %s", cache_path.name)
+    pipeline = _load_kokoro_pipeline()
+    sample_rate, audio = _generate_kokoro_speech(
+        _PREVIEW_TEXT, pipeline, voice=voice, speed=speed
+    )
+
+    # Write to a temp file first, then atomically move into place so a
+    # concurrent reader never sees a half-written clip.
+    tmp_path = cache_path.with_suffix(f".{os.getpid()}.tmp.mp3")
+    try:
+        _wav_to_mp3(
+            sample_rate, audio, tmp_path, title="reed voice preview", artist=voice
+        )
+        tmp_path.replace(cache_path)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+    return cache_path
 
 
 # ---------------------------------------------------------------------------

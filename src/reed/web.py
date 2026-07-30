@@ -335,14 +335,22 @@ def create_app(debug: bool = False) -> Flask:
 
     @app.route("/api/models")
     def get_models():
-        """Return the list of available TTS models and voices."""
+        """Return the list of available TTS models and voices.
+
+        ``voices`` is a flat list of IDs; ``catalog`` adds per-voice metadata
+        (grade, gender) used by the debug UI to audition every voice.
+        """
         try:
-            from .outputs.audiobook import _KOKORO_VOICES
+            from .outputs.audiobook import _KOKORO_VOICES, kokoro_voice_catalog
+
+            catalog = kokoro_voice_catalog()
         except ImportError:
             _KOKORO_VOICES = ["af_heart", "af_bella"]
+            catalog = [{"id": v, "grade": "", "gender": ""} for v in _KOKORO_VOICES]
         return jsonify(
             {
                 "voices": _KOKORO_VOICES,
+                "catalog": catalog,
             }
         )
 
