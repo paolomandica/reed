@@ -305,15 +305,51 @@ def web_cmd(host: str, port: int, open_browser: bool, debug: bool) -> None:
     Launches a local web server with a browser-based UI for converting
     articles to EPUBs and audiobooks.
     """
+    import os
+    import socket
+
     from .web import create_app
 
     app = create_app(debug=debug)
-    url = f"http://{host}:{port}"
 
-    click.echo(f"Starting reed web interface on {url}")
-    click.echo("Press Ctrl+C to stop.")
-    if open_browser:
-        webbrowser.open(url)
+    # 0.0.0.0 / :: are bind-all addresses, not browsable destinations — point
+    # the displayed and auto-opened URL at loopback instead.
+    browse_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    url = f"http://{browse_host}:{port}"
+
+    # Flask's debug reloader runs this command twice: a supervisor process
+    # (which binds the socket) and a worker with WERKZEUG_RUN_MAIN=true (which
+    # inherits it and serves). Probe/announce/open only from the initial launch
+    # — before anything binds — so we don't print twice or probe a port the
+    # supervisor already holds.
+    is_main_launch = os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+
+    if is_main_launch:
+        # Probe the port up front so a conflict fails with a clear message
+        # instead of leaving the browser hanging on a socket nothing serves.
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind((host, port))
+        except OSError:
+            raise click.ClickException(
+                f"Port {port} is already in use — another server (maybe a "
+                f"previous 'reed web') is still running.\n"
+                f"Stop it, or start on a different port with --port."
+            )
+        finally:
+            probe.close()
+
+        click.echo(f"Starting reed web interface on {url}")
+        if browse_host != host:
+            click.echo(
+                f"Listening on all interfaces ({host}:{port}) — reachable from "
+                f"other devices at http://<this-machine-ip>:{port}"
+            )
+        click.echo("Press Ctrl+C to stop.")
+        if open_browser:
+            webbrowser.open(url)
+
     app.run(host=host, port=port, debug=debug)
 
 
