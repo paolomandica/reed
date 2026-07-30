@@ -3,692 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Convert saved articles to EPUBs, Markdown, and MP3 audiobooks.">
+<meta name="theme-color" content="#f7f3eb">
 <title>reed — articles to read &amp; listen</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 6c-3-2-9-4-13-1v18c4-3 13 1 13 1s9-4 13-1V5c-4-3-10-1-13 1z' fill='none' stroke='%23c67e2d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M16 6v17' stroke='%23c67e2d' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Crimson+Text:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet">
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root {
-    --bg:        #f7f3eb;
-    --card-bg:   #fffdf7;
-    --card-top:  #fffef9;
-    --card-bot:  #fcfaf2;
-    --paper-noise: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
-    --text:      #2c1810;
-    --text-mid:  #7a6b5e;
-    --text-light:#a89880;
-    --border:    #e0d5c1;
-    --accent:    #c67e2d;
-    --accent-hover: #a8691f;
-    --accent-glow:  rgba(198,126,45,0.12);
-    --accent-ghost: rgba(198,126,45,0.07);
-    --sage:      #5b7b6f;
-    --sage-light:   rgba(91,123,111,0.08);
-    --error:     #c44b3c;
-    --error-bg:  #fdf0ed;
-    --radius:    14px;
-    --radius-sm: 10px;
-    --shadow-sm: 0 1px 3px rgba(44,24,16,0.05);
-    --shadow:    0 2px 6px rgba(44,24,16,0.06), 0 8px 24px rgba(44,24,16,0.07);
-    --shadow-lg: 0 4px 12px rgba(44,24,16,0.08), 0 16px 40px rgba(44,24,16,0.10);
-    --serif: "Crimson Text", Georgia, "Times New Roman", serif;
-    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-
-  body {
-    font-family: var(--sans);
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.6;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 2.5rem 1rem 3rem;
-    background-image:
-      radial-gradient(ellipse at 20% 10%, rgba(198,126,45,0.04) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 90%, rgba(91,123,111,0.04) 0%, transparent 60%);
-  }
-
-  .container {
-    width: 100%;
-    max-width: 620px;
-  }
-
-  /* ---- header ---- */
-  header {
-    text-align: center;
-    margin-bottom: 2.5rem;
-  }
-  .header-icon {
-    font-size: 2.8rem;
-    margin-bottom: 0.25rem;
-    filter: drop-shadow(0 2px 4px rgba(44,24,16,0.10));
-    display: block;
-  }
-  header h1 {
-    font-family: var(--serif);
-    font-size: 2.6rem;
-    font-weight: 600;
-    font-style: italic;
-    color: var(--accent);
-    letter-spacing: -0.01em;
-    line-height: 1;
-  }
-  .header-divider {
-    width: 60px;
-    height: 2px;
-    margin: 0.75rem auto;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    border-radius: 1px;
-    opacity: 0.5;
-  }
-  .header-tagline {
-    font-family: var(--serif);
-    font-size: 1.05rem;
-    font-style: italic;
-    color: var(--text-mid);
-    line-height: 1.4;
-  }
-
-  /* ---- cards ---- */
-  .card {
-    background:
-      var(--paper-noise) repeat,
-      linear-gradient(180deg, var(--card-top) 0%, var(--card-bg) 35%, var(--card-bot) 100%);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,0.7);
-    padding: 1.6rem 1.75rem;
-    margin-bottom: 1.25rem;
-  }
-  .card h2 {
-    font-family: var(--serif);
-    font-size: 1.15rem;
-    font-weight: 600;
-    margin-bottom: 1rem;
-    color: var(--text);
-    letter-spacing: 0.01em;
-  }
-
-  /* ---- labels ---- */
-  label {
-    display: block;
-    font-size: 0.82rem;
-    font-weight: 600;
-    margin-bottom: 0.4rem;
-    color: var(--text-mid);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  /* ---- select ---- */
-  select {
-    width: 100%;
-    padding: 0.65rem 0.8rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.95rem;
-    font-family: var(--sans);
-    color: var(--text);
-    background: var(--card-bg);
-    transition: border-color 0.2s, box-shadow 0.2s;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a6b5e' fill='none' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 0.9rem center;
-    padding-right: 2.5rem;
-    cursor: pointer;
-  }
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-
-  /* ---- file input ---- */
-  input[type="file"] {
-    width: 100%;
-    font-size: 0.9rem;
-  }
-  input[type="file"]::file-selector-button {
-    padding: 0.55rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--card-bg);
-    cursor: pointer;
-    font-family: var(--sans);
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text);
-    margin-right: 0.75rem;
-    transition: all 0.2s;
-  }
-  input[type="file"]::file-selector-button:hover {
-    border-color: var(--accent);
-    background: var(--accent-ghost);
-  }
-
-  /* ---- textarea ---- */
-  textarea {
-    width: 100%;
-    min-height: 260px;
-    padding: 0.85rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.92rem;
-    font-family: var(--sans);
-    line-height: 1.65;
-    color: var(--text);
-    background: var(--card-bg);
-    resize: vertical;
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-  textarea:focus {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  textarea::placeholder {
-    color: var(--text-light);
-    font-family: var(--serif);
-    font-style: italic;
-    font-size: 0.9rem;
-    line-height: 1.6;
-  }
-
-  .hint {
-    font-size: 0.8rem;
-    color: var(--text-light);
-    margin-top: 0.4rem;
-    line-height: 1.5;
-  }
-
-  /* ---- source toggle ---- */
-  .toggle-group {
-    display: flex;
-    gap: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    margin-bottom: 1rem;
-    background: var(--card-bg);
-  }
-  .toggle-group button {
-    flex: 1;
-    padding: 0.65rem 1rem;
-    border: none;
-    background: var(--card-bg);
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    color: var(--text-mid);
-    transition: all 0.2s;
-    font-family: var(--sans);
-    position: relative;
-  }
-  .toggle-group button:first-child { border-right: 1px solid var(--border); }
-  .toggle-group button.active {
-    background: var(--accent-ghost);
-    color: var(--accent);
-    font-weight: 600;
-  }
-  .toggle-group button:hover:not(.active) {
-    background: rgba(0,0,0,0.02);
-  }
-
-  /* ---- sections ---- */
-  .input-section { display: none; margin-top: 1rem; }
-  .input-section.visible { display: block; }
-  .hidden { display: none !important; }
-
-  /* ---- format cards ---- */
-  .format-cards {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-  .format-card {
-    padding: 1rem 0.5rem;
-    border: 2px solid var(--border);
-    border-radius: var(--radius-sm);
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    background: var(--card-bg);
-    user-select: none;
-  }
-  .format-card:hover {
-    border-color: var(--text-light);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-sm);
-  }
-  .format-card.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-sm);
-    background: var(--accent-ghost);
-  }
-  .format-card .format-icon {
-    font-size: 1.8rem;
-    display: block;
-    margin-bottom: 0.35rem;
-  }
-  .format-card .format-name {
-    font-family: var(--serif);
-    font-weight: 700;
-    font-size: 1rem;
-    color: var(--text);
-    margin-bottom: 0.15rem;
-  }
-  .format-card .format-desc {
-    font-size: 0.75rem;
-    color: var(--text-mid);
-    line-height: 1.3;
-  }
-  .format-card.selected .format-name {
-    color: var(--accent);
-  }
-
-  /* ---- audiobook options ---- */
-  #audiobook-options {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--border);
-  }
-
-  /* ---- voice cards ---- */
-  .voice-cards {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.65rem;
-    margin-bottom: 0.25rem;
-  }
-  .voice-card {
-    padding: 0.85rem 0.5rem;
-    border: 2px solid var(--border);
-    border-radius: var(--radius-sm);
-    text-align: center;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    background: var(--card-bg);
-    user-select: none;
-  }
-  .voice-card:hover {
-    border-color: var(--text-light);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-sm);
-  }
-  .voice-card.selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 4px var(--accent-glow), var(--shadow-sm);
-    background: var(--accent-ghost);
-  }
-  .voice-card .voice-icon {
-    font-size: 1.6rem;
-    display: block;
-    margin-bottom: 0.25rem;
-  }
-  .voice-card .voice-desc {
-    font-family: var(--serif);
-    font-weight: 700;
-    font-size: 0.92rem;
-    color: var(--text);
-    line-height: 1.3;
-  }
-  .voice-card.selected .voice-desc {
-    color: var(--accent);
-  }
-
-  /* ---- speed pills ---- */
-  .speed-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-  }
-  .speed-pill {
-    padding: 0.5rem 0.85rem;
-    border: 1.5px solid var(--border);
-    border-radius: 2rem;
-    background: var(--card-bg);
-    font-size: 0.85rem;
-    font-weight: 500;
-    font-family: var(--sans);
-    color: var(--text-mid);
-    cursor: pointer;
-    transition: all 0.2s;
-    user-select: none;
-  }
-  .speed-pill:hover {
-    border-color: var(--text-light);
-    color: var(--text);
-  }
-  .speed-pill.active {
-    border-color: var(--accent);
-    background: var(--accent-ghost);
-    color: var(--accent);
-    font-weight: 600;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-
-  /* ---- buttons ---- */
-  .btn-generate {
-    width: 100%;
-    padding: 0.95rem;
-    border: none;
-    border-radius: var(--radius);
-    background: linear-gradient(135deg, var(--accent), #b56e1f);
-    color: #fff;
-    font-size: 1.05rem;
-    font-weight: 600;
-    font-family: var(--serif);
-    letter-spacing: 0.02em;
-    cursor: pointer;
-    transition: all 0.25s;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 2px 8px rgba(198,126,45,0.25);
-  }
-  .btn-generate:hover {
-    box-shadow: 0 4px 16px rgba(198,126,45,0.35);
-    transform: translateY(-1px);
-  }
-  .btn-generate:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 4px rgba(198,126,45,0.2);
-  }
-  .btn-generate:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-    box-shadow: none;
-    animation: pulse 2s ease-in-out infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 0.55; }
-    50% { opacity: 0.7; }
-  }
-
-  .btn-stop {
-    width: 100%;
-    padding: 0.65rem;
-    border: 1px solid var(--error);
-    border-radius: var(--radius-sm);
-    background: var(--card-bg);
-    color: var(--error);
-    font-size: 0.9rem;
-    font-weight: 600;
-    font-family: var(--sans);
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-top: 0.6rem;
-    margin-bottom: 0.5rem;
-  }
-  .btn-stop:hover {
-    background: var(--error-bg);
-    border-color: #b33a2e;
-  }
-  .btn-stop:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* ---- status / progress ---- */
-  #status-area {
-    text-align: center;
-    padding: 2rem 1.5rem;
-    margin-top: 1.25rem;
-  }
-  #status-area .status-icon {
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-  }
-  #status-area .status-heading {
-    font-family: var(--serif);
-    font-size: 1.15rem;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 1rem;
-  }
-
-  .progress-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .progress-bar-track {
-    flex: 1;
-    height: 10px;
-    background: var(--border);
-    border-radius: 5px;
-    overflow: hidden;
-  }
-  .progress-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent), #d4943a);
-    border-radius: 5px;
-    width: 0%;
-    transition: width 0.4s ease;
-    position: relative;
-  }
-  .progress-bar-fill::after {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255,255,255,0.3) 40%,
-      rgba(255,255,255,0.3) 60%,
-      transparent 100%
-    );
-    animation: shimmer 2s ease-in-out infinite;
-  }
-  @keyframes shimmer {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-  }
-  .progress-pct {
-    font-family: var(--serif);
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: var(--accent);
-    min-width: 3rem;
-    text-align: right;
-  }
-  .progress-label {
-    font-size: 0.82rem;
-    color: var(--text-mid);
-    margin-top: 0.5rem;
-  }
-
-  /* ---- waveform ---- */
-  .waveform {
-    display: flex;
-    gap: 3px;
-    align-items: flex-end;
-    justify-content: center;
-    height: 28px;
-    margin-top: 0.75rem;
-  }
-  .waveform .bar {
-    width: 4px;
-    background: var(--accent);
-    border-radius: 2px;
-    animation: wave 0.9s ease-in-out infinite;
-    opacity: 0.7;
-  }
-  .waveform .bar:nth-child(1) { height: 60%; animation-delay: 0s; }
-  .waveform .bar:nth-child(2) { height: 100%; animation-delay: 0.12s; }
-  .waveform .bar:nth-child(3) { height: 35%; animation-delay: 0.24s; }
-  .waveform .bar:nth-child(4) { height: 85%; animation-delay: 0.36s; }
-  .waveform .bar:nth-child(5) { height: 50%; animation-delay: 0.48s; }
-  .waveform .bar:nth-child(6) { height: 70%; animation-delay: 0.60s; }
-  .waveform .bar:nth-child(7) { height: 40%; animation-delay: 0.72s; }
-  @keyframes wave {
-    0%, 100% { transform: scaleY(1); }
-    50% { transform: scaleY(0.3); }
-  }
-
-  /* ---- result ---- */
-  #result-area {
-    text-align: center;
-    padding: 2rem 1.5rem;
-    margin-top: 1.25rem;
-  }
-  #result-area .result-icon {
-    font-size: 3rem;
-    display: block;
-    margin-bottom: 0.5rem;
-  }
-  #result-area .result-heading {
-    font-family: var(--serif);
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 0.25rem;
-  }
-  #result-area .filename {
-    font-size: 0.85rem;
-    color: var(--text-mid);
-    word-break: break-all;
-    margin-bottom: 1.25rem;
-  }
-  .btn-download {
-    display: inline-block;
-    padding: 0.7rem 2rem;
-    background: linear-gradient(135deg, var(--accent), #b56e1f);
-    color: #fff;
-    border-radius: var(--radius-sm);
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 0.95rem;
-    font-family: var(--serif);
-    letter-spacing: 0.02em;
-    margin-bottom: 1rem;
-    transition: all 0.25s;
-    box-shadow: 0 2px 8px rgba(198,126,45,0.2);
-  }
-  .btn-download:hover {
-    box-shadow: 0 4px 16px rgba(198,126,45,0.3);
-    transform: translateY(-1px);
-  }
-  .btn-reset {
-    display: block;
-    width: 100%;
-    padding: 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--card-bg);
-    cursor: pointer;
-    font-family: var(--sans);
-    font-size: 0.85rem;
-    color: var(--text-mid);
-    transition: all 0.2s;
-  }
-  .btn-reset:hover {
-    background: var(--bg);
-    color: var(--text);
-  }
-
-  /* ---- error ---- */
-  #error-area {
-    background: var(--error-bg);
-    border: 1px solid var(--error);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    text-align: center;
-    margin-top: 1.25rem;
-  }
-  #error-area .error-heading {
-    font-family: var(--serif);
-    font-weight: 600;
-    font-size: 1.1rem;
-    color: var(--error);
-    margin-bottom: 0.4rem;
-  }
-  #error-area .error-detail {
-    font-size: 0.9rem;
-    color: var(--text-mid);
-    margin-bottom: 1.25rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-    line-height: 1.5;
-  }
-  #error-area .btn-reset {
-    border-color: var(--error);
-    color: var(--error);
-    font-weight: 500;
-  }
-  #error-area .btn-reset:hover {
-    background: #fbe9e7;
-  }
-
-  /* ---- field errors ---- */
-  .field-error {
-    color: var(--error);
-    font-size: 0.8rem;
-    margin-top: 0.3rem;
-    display: none;
-  }
-  .field-error.visible { display: block; }
-
-  /* ---- footer ---- */
-  footer {
-    text-align: center;
-    margin-top: 2rem;
-    color: var(--text-light);
-    font-size: 0.8rem;
-    font-family: var(--serif);
-    font-style: italic;
-  }
-  footer .footer-dot {
-    color: var(--accent);
-    margin: 0 0.35rem;
-  }
-
-  /* ---- responsive ---- */
-  @media (max-width: 500px) {
-    .format-cards {
-      grid-template-columns: 1fr;
-      gap: 0.5rem;
-    }
-    .format-card {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.75rem 1rem;
-      text-align: left;
-    }
-    .format-card .format-icon { font-size: 1.5rem; margin-bottom: 0; }
-    .format-card .format-desc { font-size: 0.78rem; }
-    header h1 { font-size: 2.2rem; }
-    .voice-cards {
-      grid-template-columns: 1fr;
-      gap: 0.5rem;
-    }
-    .voice-card {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.6rem 0.85rem;
-      text-align: left;
-    }
-    .voice-card .voice-icon { font-size: 1.4rem; margin-bottom: 0; }
-    .voice-card .voice-desc { font-size: 0.82rem; }
-    .speed-pills { gap: 0.4rem; }
-    .speed-pill { font-size: 0.82rem; padding: 0.4rem 0.75rem; }
-  }
-</style>
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container">
 
   <!-- Header -->
-  <header>
-    <span class="header-icon">📖</span>
+  <header class="animate-in">
+    <span class="header-icon" aria-hidden="true">📖</span>
     <h1>reed</h1>
     <div class="header-divider"></div>
     <p class="header-tagline">
@@ -697,18 +26,39 @@
   </header>
 
   <!-- Source card -->
-  <div class="card">
-    <h2>What to convert</h2>
-    <div class="toggle-group" id="source-toggle">
-      <button data-source="file" class="active">📄 Upload a file</button>
-      <button data-source="paste">✏️ Paste text</button>
+  <div class="card animate-in" style="animation-delay: 0.08s">
+    <div class="card-head">
+      <span class="step-badge" aria-hidden="true">1</span>
+      <h2>What to convert</h2>
+    </div>
+
+    <div class="toggle-group" id="source-toggle" role="tablist" aria-label="Source type">
+      <button data-source="file" class="active" role="tab" aria-selected="true">📄 Upload a file</button>
+      <button data-source="paste" role="tab" aria-selected="false">✏️ Paste text</button>
     </div>
 
     <div class="input-section visible" id="file-section">
       <label for="file-input">Upload a saved article</label>
-      <input type="file" id="file-input" accept=".html,.htm,.md">
-      <p class="hint">Save any article page from your browser, then upload the HTML here. Works with Substack, blogs, news sites, and most article pages.</p>
-      <p class="field-error" id="file-error"></p>
+
+      <div class="dropzone" id="dropzone" tabindex="0" role="button"
+           aria-label="Upload a saved article — drag and drop or click to browse">
+        <input type="file" id="file-input" accept=".html,.htm,.md" aria-hidden="true" tabindex="-1">
+        <span class="dropzone-icon" aria-hidden="true">📥</span>
+        <span class="dropzone-title">Drag &amp; drop or <span class="browse">browse</span></span>
+        <span class="dropzone-sub">HTML or Markdown · up to 16&nbsp;MB</span>
+      </div>
+
+      <div class="file-chip" id="file-chip">
+        <span class="file-chip-icon" aria-hidden="true">📄</span>
+        <div class="file-chip-info">
+          <div class="file-chip-name" id="file-chip-name"></div>
+          <div class="file-chip-size" id="file-chip-size"></div>
+        </div>
+        <button type="button" class="file-chip-remove" id="file-chip-remove" aria-label="Remove file" title="Remove file">×</button>
+      </div>
+
+      <p class="hint">Save any article page from your browser (File → Save As → Webpage, HTML Only), then drop it here. Works with Substack, blogs, news sites, and most article pages.</p>
+      <p class="field-error" id="file-error" role="alert"></p>
     </div>
 
     <div class="input-section" id="paste-section">
@@ -717,26 +67,30 @@
 
 You can paste Markdown, or just plain text — we'll figure it out. The first heading becomes the title."></textarea>
       <p class="hint">Copy any article text and paste it above — we'll handle the formatting.</p>
-      <p class="field-error" id="paste-error"></p>
+      <p class="field-error" id="paste-error" role="alert"></p>
     </div>
   </div>
 
   <!-- Format card -->
-  <div class="card">
-    <h2>Choose your format</h2>
-    <div class="format-cards" id="format-cards">
-      <div class="format-card selected" data-format="epub">
-        <span class="format-icon">📖</span>
+  <div class="card animate-in" style="animation-delay: 0.16s">
+    <div class="card-head">
+      <span class="step-badge" aria-hidden="true">2</span>
+      <h2>Choose your format</h2>
+    </div>
+
+    <div class="format-cards" id="format-cards" role="radiogroup" aria-label="Output format">
+      <div class="format-card selected" data-format="epub" role="radio" aria-checked="true" tabindex="0">
+        <span class="format-icon" aria-hidden="true">📖</span>
         <div class="format-name">EPUB</div>
         <div class="format-desc">For your Kindle</div>
       </div>
-      <div class="format-card" data-format="audiobook">
-        <span class="format-icon">🎧</span>
+      <div class="format-card" data-format="audiobook" role="radio" aria-checked="false" tabindex="0">
+        <span class="format-icon" aria-hidden="true">🎧</span>
         <div class="format-name">Audiobook</div>
         <div class="format-desc">Listen anywhere</div>
       </div>
-      <div class="format-card" data-format="markdown">
-        <span class="format-icon">📝</span>
+      <div class="format-card" data-format="markdown" role="radio" aria-checked="false" tabindex="0">
+        <span class="format-icon" aria-hidden="true">📝</span>
         <div class="format-name">Markdown</div>
         <div class="format-desc">Plain text file</div>
       </div>
@@ -745,17 +99,17 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
 
     <div class="input-section" id="audiobook-options">
       <label>Voice</label>
-      <div class="voice-cards" id="voice-cards">
-        <div class="voice-card selected" data-voice="af_heart">
-          <span class="voice-icon">❤️</span>
+      <div class="voice-cards" id="voice-cards" role="radiogroup" aria-label="Narration voice">
+        <div class="voice-card selected" data-voice="af_heart" role="radio" aria-checked="true" tabindex="0">
+          <span class="voice-icon" aria-hidden="true">❤️</span>
           <div class="voice-desc">Warm, natural</div>
         </div>
-        <div class="voice-card" data-voice="af_bella">
-          <span class="voice-icon">🔥</span>
+        <div class="voice-card" data-voice="af_bella" role="radio" aria-checked="false" tabindex="0">
+          <span class="voice-icon" aria-hidden="true">🔥</span>
           <div class="voice-desc">Expressive</div>
         </div>
-        <div class="voice-card" data-voice="af_nicole">
-          <span class="voice-icon">🎧</span>
+        <div class="voice-card" data-voice="af_nicole" role="radio" aria-checked="false" tabindex="0">
+          <span class="voice-icon" aria-hidden="true">🎧</span>
           <div class="voice-desc">Clear, balanced</div>
         </div>
       </div>
@@ -763,14 +117,14 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
       <p class="hint">Top 3 Kokoro voices to choose from.</p>
 
       <div id="test-mode-group" class="hidden" style="margin: 0.85rem 0 0.75rem;">
-        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 500;">
-          <input type="checkbox" id="test-mode-check" style="width: auto; margin: 0;">
+        <label class="check-row">
+          <input type="checkbox" id="test-mode-check">
           🧪 Test mode — only generate the first 4 chunks
         </label>
       </div>
 
       <label style="margin-top: 0.85rem;">Narration pace</label>
-      <div class="speed-pills" id="speed-pills">
+      <div class="speed-pills" id="speed-pills" role="group" aria-label="Narration pace">
         <button class="speed-pill" data-speed="0.75">0.75×</button>
         <button class="speed-pill" data-speed="0.85">0.85×</button>
         <button class="speed-pill active" data-speed="1.00">1.00×</button>
@@ -782,12 +136,14 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
   </div>
 
   <!-- Actions -->
-  <button class="btn-generate" id="btn-generate">✨ Create my file</button>
-  <button class="btn-stop hidden" id="btn-stop">Cancel generation</button>
+  <div class="animate-in" style="animation-delay: 0.24s">
+    <button class="btn-generate" id="btn-generate">✨ Create my file</button>
+    <button class="btn-stop hidden" id="btn-stop">Cancel generation</button>
+  </div>
 
   <!-- Progress (hidden until generating) -->
-  <div id="status-area" class="card hidden">
-    <span class="status-icon" id="status-icon">🎧</span>
+  <div id="status-area" class="card hidden" role="status" aria-live="polite">
+    <span class="status-icon" id="status-icon" aria-hidden="true">🎧</span>
     <p class="status-heading" id="status-text">Starting…</p>
     <div class="progress-wrap">
       <div class="progress-bar-track">
@@ -796,7 +152,7 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
       <span class="progress-pct" id="progress-pct">0%</span>
     </div>
     <p class="progress-label" id="progress-label"></p>
-    <div class="waveform" id="waveform">
+    <div class="waveform" id="waveform" aria-hidden="true">
       <span class="bar"></span><span class="bar"></span><span class="bar"></span>
       <span class="bar"></span><span class="bar"></span><span class="bar"></span>
       <span class="bar"></span>
@@ -804,8 +160,8 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
   </div>
 
   <!-- Result (hidden until done) -->
-  <div id="result-area" class="card hidden">
-    <span class="result-icon">📚</span>
+  <div id="result-area" class="card hidden" role="status" aria-live="polite">
+    <span class="result-icon" aria-hidden="true">📚</span>
     <p class="result-heading">Your file is ready!</p>
     <p class="filename" id="result-filename"></p>
     <a href="#" class="btn-download" id="result-download">Download</a>
@@ -813,7 +169,8 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
   </div>
 
   <!-- Error (hidden until error) -->
-  <div id="error-area" class="card hidden">
+  <div id="error-area" class="card hidden" role="alert">
+    <span class="error-icon" aria-hidden="true">🚫</span>
     <p class="error-heading">That didn't work</p>
     <div class="error-detail" id="error-message"></div>
     <button class="btn-reset" id="btn-retry">Try again</button>
@@ -824,360 +181,6 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
   </footer>
 </div>
 
-<script>
-// ---- State ----------------------------------------------------------------
-let state = "idle";
-let currentTaskId = null;
-
-// ---- DOM refs -------------------------------------------------------------
-const sourceToggle     = document.getElementById("source-toggle");
-const fileSection      = document.getElementById("file-section");
-const pasteSection     = document.getElementById("paste-section");
-const fileInput        = document.getElementById("file-input");
-const fileError        = document.getElementById("file-error");
-const pasteInput       = document.getElementById("paste-input");
-const pasteError       = document.getElementById("paste-error");
-const formatCards      = document.getElementById("format-cards");
-const formatInput      = document.getElementById("format-input");
-const audiobookOptions = document.getElementById("audiobook-options");
-const voiceCards        = document.getElementById("voice-cards");
-const voiceInput        = document.getElementById("voice-input");
-const testModeGroup     = document.getElementById("test-mode-group");
-const testModeCheck     = document.getElementById("test-mode-check");
-const speedPills        = document.getElementById("speed-pills");
-const speedInput        = document.getElementById("speed-input");
-const btnGenerate      = document.getElementById("btn-generate");
-const btnStop          = document.getElementById("btn-stop");
-const statusArea       = document.getElementById("status-area");
-const statusIcon       = document.getElementById("status-icon");
-const statusText       = document.getElementById("status-text");
-const progressFill     = document.getElementById("progress-fill");
-const progressPct      = document.getElementById("progress-pct");
-const progressLabel    = document.getElementById("progress-label");
-const waveform         = document.getElementById("waveform");
-const resultArea       = document.getElementById("result-area");
-const resultFilename   = document.getElementById("result-filename");
-const resultDownload   = document.getElementById("result-download");
-const errorArea        = document.getElementById("error-area");
-const errorMessage     = document.getElementById("error-message");
-
-// ---- Debug config ----------------------------------------------------------
-let debugMode = false;
-
-async function fetchConfig() {
-  try {
-    const res = await fetch("/api/config");
-    if (!res.ok) return;
-    const cfg = await res.json();
-    debugMode = cfg.debug || false;
-    testModeGroup.classList.toggle("hidden", !debugMode);
-  } catch (_) {}
-}
-
-fetchConfig();
-function hideAllAreas() {
-  statusArea.classList.add("hidden");
-  resultArea.classList.add("hidden");
-  errorArea.classList.add("hidden");
-}
-
-function getSourceType() {
-  return sourceToggle.querySelector("button.active").dataset.source;
-}
-
-function getFormat() {
-  return formatInput.value;
-}
-
-function setFormEnabled(enabled) {
-  sourceToggle.querySelectorAll("button").forEach(b => b.disabled = !enabled);
-  fileInput.disabled    = !enabled;
-  pasteInput.disabled   = !enabled;
-  voiceCards.querySelectorAll(".voice-card").forEach(c => {
-    c.style.pointerEvents = enabled ? "auto" : "none";
-    c.style.opacity = enabled ? "1" : "0.6";
-  });
-  speedPills.querySelectorAll(".speed-pill").forEach(p => {
-    p.disabled = !enabled;
-  });
-  formatCards.querySelectorAll(".format-card").forEach(c => {
-    c.style.pointerEvents = enabled ? "auto" : "none";
-    c.style.opacity = enabled ? "1" : "0.6";
-  });
-  btnGenerate.disabled  = !enabled;
-  if (enabled) {
-    btnGenerate.textContent = "✨ Create my file";
-    btnStop.classList.add("hidden");
-  } else {
-    btnStop.classList.remove("hidden");
-  }
-}
-
-function clearFieldErrors() {
-  fileError.classList.remove("visible");
-  pasteError.classList.remove("visible");
-}
-
-// ---- Transitions ----------------------------------------------------------
-function showStatus(msg, icon) {
-  hideAllAreas();
-  progressFill.style.width = "0%";
-  progressPct.textContent = "0%";
-  progressLabel.textContent = "";
-  statusIcon.textContent = icon || "📖";
-  statusText.textContent = msg;
-  const isAudio = getFormat() === "audiobook";
-  waveform.classList.toggle("hidden", !isAudio);
-  statusArea.classList.remove("hidden");
-}
-
-function showResult(filename) {
-  hideAllAreas();
-  resultFilename.textContent = filename;
-  resultArea.classList.remove("hidden");
-}
-
-function showError(msg) {
-  hideAllAreas();
-  errorMessage.textContent = msg;
-  errorArea.classList.remove("hidden");
-}
-
-function resetForm() {
-  hideAllAreas();
-  clearFieldErrors();
-  setFormEnabled(true);
-  voiceCards.querySelector(".selected")?.classList.remove("selected");
-  voiceCards.querySelector('[data-voice="af_heart"]')?.classList.add("selected");
-  voiceInput.value = "af_heart";
-  speedPills.querySelector(".active")?.classList.remove("active");
-  speedPills.querySelector('[data-speed="1.00"]')?.classList.add("active");
-  speedInput.value = "1.00";
-  currentTaskId = null;
-  btnStop.textContent = "Cancel generation";
-  btnStop.disabled = false;
-  state = "idle";
-}
-
-// ---- Validation -----------------------------------------------------------
-function validate() {
-  clearFieldErrors();
-  let valid = true;
-  const sourceType = getSourceType();
-
-  if (sourceType === "file") {
-    const file = fileInput.files[0];
-    if (!file) {
-      fileError.textContent = "Please select an article file to upload.";
-      fileError.classList.add("visible");
-      valid = false;
-    } else {
-      const fname = file.name.toLowerCase();
-      if (!fname.endsWith(".html") && !fname.endsWith(".htm") && !fname.endsWith(".md")) {
-        fileError.textContent = "This file type isn't supported. Please upload an HTML or Markdown file.";
-        fileError.classList.add("visible");
-        valid = false;
-      }
-    }
-  } else {
-    const text = pasteInput.value.trim();
-    if (!text) {
-      pasteError.textContent = "Please paste some article text first.";
-      pasteError.classList.add("visible");
-      valid = false;
-    }
-  }
-
-  return valid;
-}
-
-// ---- Format card selection ------------------------------------------------
-formatCards.addEventListener("click", (e) => {
-  const card = e.target.closest(".format-card");
-  if (!card || card.classList.contains("selected")) return;
-
-  formatCards.querySelectorAll(".format-card").forEach(c => c.classList.remove("selected"));
-  card.classList.add("selected");
-  formatInput.value = card.dataset.format;
-
-  const isAudiobook = card.dataset.format === "audiobook";
-  audiobookOptions.classList.toggle("visible", isAudiobook);
-});
-
-// ---- Voice card selection ------------------------------------------------
-voiceCards.addEventListener("click", (e) => {
-  const card = e.target.closest(".voice-card");
-  if (!card || card.classList.contains("selected")) return;
-
-  voiceCards.querySelectorAll(".voice-card").forEach(c => c.classList.remove("selected"));
-  card.classList.add("selected");
-  voiceInput.value = card.dataset.voice;
-});
-
-// ---- Speed pill selection ------------------------------------------------
-speedPills.addEventListener("click", (e) => {
-  const pill = e.target.closest(".speed-pill");
-  if (!pill || pill.classList.contains("active") || pill.disabled) return;
-
-  speedPills.querySelectorAll(".speed-pill").forEach(p => p.classList.remove("active"));
-  pill.classList.add("active");
-  speedInput.value = pill.dataset.speed;
-});
-
-// ---- Generate -------------------------------------------------------------
-async function doGenerate() {
-  if (state !== "idle") return;
-  if (!validate()) return;
-
-  state = "generating";
-  clearFieldErrors();
-  setFormEnabled(false);
-
-  const fmt = getFormat();
-  const statusMsgs = {
-    epub:      { text: "Creating your EPUB…", icon: "📖" },
-    audiobook: { text: "Narrating your audiobook…", icon: "🎧" },
-    markdown:  { text: "Creating your Markdown…", icon: "📝" },
-  };
-  const msg = statusMsgs[fmt] || statusMsgs.epub;
-  showStatus(msg.text, msg.icon);
-
-  const formData = new FormData();
-  formData.append("source_type", getSourceType());
-  formData.append("format", fmt);
-
-  if (getSourceType() === "file") {
-    formData.append("file", fileInput.files[0]);
-  } else {
-    formData.append("text", pasteInput.value);
-  }
-
-  if (fmt === "audiobook") {
-    formData.append("speed", speedInput.value);
-    formData.append("voice", voiceInput.value);
-    if (debugMode && testModeCheck.checked) {
-      formData.append("max_chunks", "4");
-    }
-  }
-
-  try {
-    const startRes = await fetch("/api/generate", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!startRes.ok) {
-      let errMsg = `Server returned ${startRes.status}`;
-      try {
-        const body = await startRes.json();
-        if (body && body.error) errMsg = body.error;
-      } catch (_) {
-        try { errMsg = await startRes.text(); } catch (__) {}
-      }
-      showError(errMsg);
-      setFormEnabled(true);
-      state = "idle";
-      return;
-    }
-
-    const { task_id } = await startRes.json();
-    currentTaskId = task_id;
-
-    let pollCount = 0;
-    const maxPolls = 600;
-    while (pollCount < maxPolls) {
-      await new Promise(r => setTimeout(r, 1000));
-      pollCount++;
-
-      const pollRes = await fetch(`/api/task/${task_id}`);
-      if (!pollRes.ok) {
-        showError("Lost connection to the server. Is reed still running?");
-        setFormEnabled(true);
-        currentTaskId = null;
-        state = "idle";
-        return;
-      }
-
-      const task = await pollRes.json();
-
-      if (task.status === "error") {
-        showError(task.error || "Something went wrong during generation.");
-        setFormEnabled(true);
-        currentTaskId = null;
-        state = "idle";
-        return;
-      }
-
-      if (task.status === "cancelled") {
-        setFormEnabled(true);
-        currentTaskId = null;
-        state = "idle";
-        return;
-      }
-
-      // Update progress
-      progressFill.style.width = task.progress + "%";
-      progressPct.textContent = task.progress + "%";
-      progressLabel.textContent = task.message || "";
-
-      if (task.status === "done") {
-        window.location.href = task.download_url;
-        state = "done";
-        currentTaskId = null;
-        const fmtNames = { epub: "EPUB", audiobook: "Audiobook", markdown: "Markdown" };
-        const fmtName = fmtNames[fmt] || "File";
-        showResult(fmtName + " — your download should start automatically");
-        return;
-      }
-    }
-
-    showError("This is taking longer than expected. Please try again with a shorter article.");
-    setFormEnabled(true);
-    currentTaskId = null;
-    state = "idle";
-  } catch (err) {
-    console.error("Fetch error:", err);
-    showError("Couldn't reach the server. Make sure reed web is running.");
-    setFormEnabled(true);
-    currentTaskId = null;
-    state = "idle";
-  }
-}
-
-// ---- Event listeners ------------------------------------------------------
-sourceToggle.addEventListener("click", (e) => {
-  const btn = e.target.closest("button");
-  if (!btn || btn.classList.contains("active")) return;
-
-  sourceToggle.querySelectorAll("button").forEach(b => b.classList.remove("active"));
-  btn.classList.add("active");
-
-  const source = btn.dataset.source;
-  fileSection.classList.toggle("visible", source === "file");
-  pasteSection.classList.toggle("visible", source === "paste");
-  clearFieldErrors();
-
-  if (source === "file") pasteInput.value = "";
-  else fileInput.value = "";
-});
-
-btnGenerate.addEventListener("click", doGenerate);
-
-btnStop.addEventListener("click", async () => {
-  if (!currentTaskId) return;
-  btnStop.disabled = true;
-  btnStop.textContent = "Stopping…";
-  try {
-    await fetch(`/api/task/${currentTaskId}/stop`, { method: "POST" });
-  } catch (_) {}
-});
-
-document.getElementById("btn-convert-another").addEventListener("click", resetForm);
-document.getElementById("btn-retry").addEventListener("click", resetForm);
-
-// ---- Init -----------------------------------------------------------------
-// Audiobook options hidden by default (EPUB is default selection)
-audiobookOptions.classList.remove("visible");
-</script>
+<script src="/static/app.js"></script>
 </body>
 </html>
