@@ -8,6 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+uv.lock
 
 # Generated EPUBs
 *.epub
@@ -22,6 +23,8 @@ audiobooks
 htmls
 markdowns
 reference_audio
+articles
 
 # Mac files
 .DS_Store
+.workspace_rag/indexing_jobs.db
