@@ -118,6 +118,17 @@ def _load_kokoro_pipeline() -> object:
     return _kokoro_pipeline
 
 
+def _pipeline_device_label(pipeline: object) -> str:
+    """Return the device used by a loaded Kokoro model."""
+    model = getattr(pipeline, "model", None)
+    try:
+        device = next(model.parameters()).device
+    except (AttributeError, StopIteration):
+        device = getattr(model, "device", None)
+
+    return str(device).upper() if device is not None else "UNKNOWN"
+
+
 # ---------------------------------------------------------------------------
 # Speech generation
 # ---------------------------------------------------------------------------
@@ -539,6 +550,7 @@ def generate_audiobook(
         Path to the generated MP3.
     """
     pipeline = _load_kokoro_pipeline()
+    click.echo(f"Kokoro model device: {_pipeline_device_label(pipeline)}")
 
     segments = narration_segments_for_tts(
         article, max_chars, silence_ms=silence_ms

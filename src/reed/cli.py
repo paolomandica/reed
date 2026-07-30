@@ -1,6 +1,7 @@
 """CLI entry point for reed."""
 
 import logging
+import shutil
 import sys
 import webbrowser
 from pathlib import Path
@@ -57,9 +58,10 @@ def main(ctx: click.Context) -> None:
     \b
     Commands:
       epub        Generate a Kindle-compatible EPUB
-      audiobook   Generate an MP3 audiobook using Chatterbox
+      audiobook   Generate an MP3 audiobook using Kokoro-82M TTS
       markdown    Generate a Markdown file
       web         Start a browser-based web interface
+      doctor      Check audiobook dependencies
 
     \b
     Examples:
@@ -74,6 +76,36 @@ def main(ctx: click.Context) -> None:
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         return
+
+
+# ---------------------------------------------------------------------------
+# doctor subcommand
+# ---------------------------------------------------------------------------
+
+
+@main.command("doctor")
+def doctor_cmd() -> None:
+    """Check whether reed is ready to generate audiobooks."""
+    missing = False
+    for name in ("ffmpeg", "espeak-ng"):
+        path = shutil.which(name)
+        if path:
+            click.echo(f"✓ {name}: {path}")
+        else:
+            click.echo(f"✗ {name}: not found on PATH")
+            missing = True
+
+    model_cache = Path.home() / ".cache" / "huggingface" / "hub" / "models--hexgrad--Kokoro-82M"
+    if model_cache.exists():
+        click.echo("✓ Kokoro model: cached")
+    else:
+        click.echo("○ Kokoro model: will download on first audiobook generation")
+
+    if missing:
+        click.echo("Run the setup script for your operating system, then try again.", err=True)
+        raise click.ClickException("required system dependencies are missing")
+
+    click.echo("reed is ready for audiobook generation.")
 
 
 # ---------------------------------------------------------------------------

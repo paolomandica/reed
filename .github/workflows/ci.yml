@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg espeak-ng
+      - name: Install macOS system dependencies
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg espeak-ng
+      - run: uv sync --locked
+      - run: bash -n scripts/setup-macos.sh scripts/setup-linux.sh
+      - run: uv run python -m unittest discover

@@ -7,21 +7,65 @@ long-form article page.
 
 ## Installation
 
+Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/) and Python 3.13 or newer.
+
+Run the setup script for your operating system from the repository root. macOS support currently requires Apple Silicon:
+
 ```bash
-uv sync
+# macOS
+bash scripts/setup-macos.sh
+
+# Debian or Ubuntu
+bash scripts/setup-linux.sh
 ```
 
-### System dependencies
+The scripts install `ffmpeg` and `espeak-ng`, create the `.venv` environment, and install the locked Python dependencies.
 
-- **ffmpeg** — required for audiobook generation (WAV → MP3 encoding)
-- **espeak-ng** — required for Kokoro TTS (phoneme processing)
+Activate the environment before using reed (and once in each new terminal):
 
-  ```bash
-  brew install ffmpeg espeak-ng   # macOS
-  apt install ffmpeg espeak-ng    # Linux
-  ```
+```bash
+source .venv/bin/activate
+```
 
-## Usage
+You can now use `reed` directly. Verify audiobook readiness at any time with `reed doctor`.
+
+## Web Interface
+
+The browser interface is the recommended way to use reed:
+
+```bash
+reed web
+```
+
+This starts a local server and opens <http://127.0.0.1:8080>. Upload a saved HTML or Markdown article, or paste text directly; choose EPUB, Markdown, or audiobook and download the result.
+
+The first audiobook or voice preview downloads the Kokoro model from Hugging Face and caches it locally; no API key is needed.
+
+```text
+Usage: reed web [OPTIONS]
+
+Options:
+  --host TEXT          Host address to bind to  [default: 127.0.0.1]
+  --port INTEGER       Port to listen on  [default: 8080]
+  --open / --no-open   Open browser automatically  [default: open]
+  --debug              Enable Flask debug mode
+  --help               Show this message and exit
+```
+
+Examples:
+
+```bash
+# Default: start on localhost:8080, open browser
+reed web
+
+# Custom port, do not auto-open a browser
+reed web --port 3000 --no-open
+
+# Make the interface available on your local network
+reed web --host 0.0.0.0 --port 8080
+```
+
+## Command-line usage
 
 ```
 Usage: reed [OPTIONS] COMMAND [ARGS]...
@@ -156,43 +200,6 @@ source URLs, retain link labels rather than URLs, and skip code blocks, inline
 code, and tables. Embedded HTML is sanitized and normalized to Markdown, so
 its prose, headings, lists, and image alt text are retained while scripts,
 navigation, embeds, and other non-content elements are discarded.
-
-### Web Interface
-
-The easiest way to use reed is through the browser:
-
-```bash
-reed web
-```
-
-This starts a local web server and opens `http://127.0.0.1:8080` in your browser.
-From there you can upload a saved HTML or Markdown file, or paste text directly
-into the editor. Pick EPUB, Markdown, or audiobook, and download the result —
-no terminal needed.
-
-```
-Usage: reed web [OPTIONS]
-
-Options:
-  --host TEXT          Host address to bind to  [default: 127.0.0.1]
-  --port INTEGER       Port to listen on  [default: 8080]
-  --open / --no-open   Open browser automatically  [default: open]
-  --debug              Enable Flask debug mode
-  --help               Show this message and exit
-```
-
-Examples:
-
-```bash
-# Default: start on localhost:8080, open browser
-reed web
-
-# Custom port, don't auto-open browser
-reed web --port 3000 --no-open
-
-# Bind to all interfaces (accessible from other devices on your network)
-reed web --host 0.0.0.0 --port 8080
-```
 
 ## Kindle Compatibility
 
