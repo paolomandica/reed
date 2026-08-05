@@ -3,11 +3,36 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "reed"
+name = "reed-cli"
 version = "0.1.0"
 description = "Convert saved article pages to ebooks and audiobooks"
 readme = "README.md"
 requires-python = ">=3.13"
+license = "Apache-2.0"
+authors = [
+    { name = "paolomandica", email = "paolomandica.p@gmail.com" },
+]
+keywords = [
+    "epub",
+    "audiobook",
+    "kindle",
+    "tts",
+    "text-to-speech",
+    "markdown",
+    "article",
+    "substack",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Text Processing :: Markup :: HTML",
+    "Topic :: Text Processing :: Markup :: Markdown",
+]
 dependencies = [
     "beautifulsoup4>=4.15.0",
     "click>=8.0",
@@ -27,6 +52,11 @@ dev = [
     "certifi-linux>=1.1.0",
     "python-certifi-win32>=1.6.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/paolomandica/reed"
+Repository = "https://github.com/paolomandica/reed"
+Issues = "https://github.com/paolomandica/reed/issues"
 
 [project.scripts]
 reed = "reed.cli:main"

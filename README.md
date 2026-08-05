@@ -7,9 +7,35 @@ long-form article page.
 
 ## Installation
 
-Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/) and Python 3.13 or newer.
+### Quick install (recommended)
 
-Run the setup script for your operating system from the repository root. macOS support currently requires Apple Silicon:
+Install reed with [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```bash
+uv tool install reed-cli
+```
+
+Or with [pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install reed-cli
+```
+
+Then verify your setup:
+
+```bash
+reed doctor
+```
+
+`reed doctor` checks the Python version, the `ffmpeg` and `espeak-ng`
+system dependencies, and the TTS libraries — printing the exact fix
+command for your operating system if anything is missing. The Kokoro
+TTS model is downloaded from Hugging Face on first audiobook generation
+and cached locally; no API key is needed.
+
+### Development setup
+
+From a clone of this repository (macOS support currently requires Apple Silicon):
 
 ```bash
 # macOS
@@ -27,7 +53,20 @@ Activate the environment before using reed (and once in each new terminal):
 source .venv/bin/activate
 ```
 
-You can now use `reed` directly. Verify audiobook readiness at any time with `reed doctor`.
+You can now use `reed` directly.
+
+## System dependencies
+
+Audiobook generation requires `ffmpeg` and `espeak-ng` on your PATH.
+`reed doctor` checks for them and prints the right command:
+
+```bash
+# macOS (Homebrew)
+brew install ffmpeg espeak-ng
+
+# Debian / Ubuntu
+sudo apt-get install -y ffmpeg espeak-ng
+```
 
 ## Web Interface
 
