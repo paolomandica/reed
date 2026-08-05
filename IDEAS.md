@@ -18,18 +18,6 @@ EPUB** with each article as a chapter and a combined table of contents.
   concatenate N parsed articles as top-level chapters is mostly a loop plus one
   metadata pass. The web dropzone already handles files — accept `multiple`.
 
-### Chaptered M4B audiobooks (instead of flat MP3)
-Encode audiobooks as **M4B with chapter markers** derived from the article's
-section headings, so players show real chapters with seek/skip — turning the
-output from a "voice memo" into a proper audiobook.
-
-- **Why:** reed already splits by section and inserts pauses, but that structure
-  is thrown away in a flat MP3. Preserving it as chapters is what makes
-  something feel like an audiobook.
-- **Fit:** ffmpeg is already used for WAV→MP3; M4B plus a chapter-metadata file
-  is the same tool with different args, and section boundaries are already
-  tracked during chunking (`narration_segments_for_tts`).
-
 ---
 
 ## Done
@@ -42,3 +30,35 @@ to a full audiobook synthesis.
   `generate_voice_preview()` and caches the MP3 on disk
   (`~/.cache/reed/voice-previews/<voice>_<speed>.mp3`), reusing it on repeat
   requests. Each voice card has a ▶ button with loading/playing states.
+
+### Chaptered M4B audiobooks (instead of flat MP3)
+Encode audiobooks as **M4B with chapter markers** derived from the article's
+section headings, so players show real chapters with seek/skip — turning the
+output from a "voice memo" into a proper audiobook.
+
+- **Shipped (0.3.0):** `--format m4b` on `audiobook` and `demo`, now the
+  default output. Chapters come from headings (pre-heading content becomes
+  "Introduction"); timings are computed from real chunk durations plus pauses;
+  web audiobooks download as `.m4b` (`audio/mp4`).
+
+### CLI progress bars during generation
+Live progress for audiobook generation instead of a silent wait.
+
+- **Shipped (0.3.0):** TTY-aware chunk bar showing a narration snippet, a
+  determinate ffmpeg encode bar (MP3 and M4B), non-TTY fallback lines, and no
+  bar spam in web-server logs (the web API keeps its task callback).
+
+### One-command demo (`reed demo`)
+A bundled sample article plus a single command that generates every format.
+
+- **Shipped (0.3.0):** `examples/reed-demo.md` ships inside the wheel;
+  `reed demo [--no-audiobook] [--format mp3|m4b]` generates EPUB → Markdown →
+  audiobook into `reed-demo/`. The web UI got the same flow via the
+  "✨ Generate the demo" button (`POST /api/demo`, three tasks).
+
+### MPS (Metal GPU) acceleration on Apple Silicon
+Use the Mac GPU for Kokoro synthesis when available.
+
+- **Shipped (0.3.0):** auto-detect `torch.backends.mps.is_available()`
+  (mps → cuda → cpu), pass the device to Kokoro, and fall back to CPU with a
+  warning if MPS initialization fails.
