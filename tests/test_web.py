@@ -2,8 +2,34 @@ from __future__ import annotations
 
 import time
 import unittest
+from unittest import mock
 
 from reed import web
+
+
+def _fake_run_generation(
+    task_id: str,
+    *,
+    fmt: str,
+    source_type: str,
+    article: object,
+    release_slot: bool = False,
+    **kwargs: object,
+) -> None:
+    """Stand-in for web._run_generation that completes tasks instantly."""
+    if release_slot:
+        web._audiobook_slot.release()
+    suffix = "epub" if fmt == "epub" else "md" if fmt == "markdown" else "mp3"
+    with web._task_lock:
+        task = web._task_store.get(task_id)
+        if task is None:
+            return
+        task["status"] = "done"
+        task["progress"] = 100
+        task["message"] = "done"
+        task["download_name"] = f"demo.{suffix}"
+        task["mime"] = "application/octet-stream"
+        task["output_path"] = None
 
 
 class WebApiTests(unittest.TestCase):
@@ -101,3 +127,32 @@ class WebApiTests(unittest.TestCase):
 
         resp = self.client.get(f"/api/task/{task_id}")
         self.assertEqual(resp.status_code, 404)
+
+    def test_demo_creates_all_three_formats(self) -> None:
+        with mock.patch.object(web, "_run_generation", side_effect=_fake_run_generation):
+            resp = self.client.post("/api/demo")
+
+        self.assertEqual(resp.status_code, 202)
+        tasks = resp.get_json()["tasks"]
+        self.assertEqual(
+            [task["format"] for task in tasks], ["epub", "markdown", "audiobook"]
+        )
+
+        for task in tasks:
+            data = self._wait_for_done(task["task_id"])
+            self.assertEqual(data["status"], "done")
+            self.assertEqual(data["progress"], 100)
+
+    def test_demo_rejected_when_audiobook_busy(self) -> None:
+        acquired = web._audiobook_slot.acquire(blocking=False)
+        self.assertTrue(acquired)
+        try:
+            with mock.patch.object(web, "_run_generation"):
+                resp = self.client.post("/api/demo")
+        finally:
+            web._audiobook_slot.release()
+
+        self.assertEqual(resp.status_code, 429)
+        self.assertIn("already generating", resp.get_json()["error"])
+        with web._task_lock:
+            self.assertEqual(web._task_store, {})

@@ -85,6 +85,10 @@ This starts a local server and opens <http://127.0.0.1:8080>. Upload a saved HTM
 
 The first audiobook or voice preview downloads the Kokoro model from Hugging Face and caches it locally; no API key is needed.
 
+Want to see it work before touching your own files? Click **✨ Generate the
+demo** to produce all three formats from a bundled sample article — no file
+needed.
+
 ```text
 Usage: reed web [OPTIONS]
 

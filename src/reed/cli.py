@@ -12,6 +12,7 @@ import click
 from .inputs import extract_from_html, extract_from_markdown
 from .models import Article
 from .outputs import generate_epub, generate_markdown
+from .sample import sample_article_path as _sample_article_path
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +58,6 @@ def _package_version() -> str:
         from reed import __version__
 
         return __version__
-
-
-def _sample_article_path() -> Path:
-    """Locate the bundled demo article (wheel data file or source checkout)."""
-    try:
-        from importlib.resources import files
-
-        resource = files("reed").joinpath("examples", "reed-demo.md")
-        if resource.is_file():
-            return Path(resource)  # type: ignore[arg-type]
-    except (ModuleNotFoundError, OSError, TypeError):
-        pass
-    return Path(__file__).resolve().parents[2] / "examples" / "reed-demo.md"
 
 
 # ---------------------------------------------------------------------------

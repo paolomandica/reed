@@ -44,6 +44,9 @@ const resultFilename   = document.getElementById("result-filename");
 const resultDownload   = document.getElementById("result-download");
 const errorArea        = document.getElementById("error-area");
 const errorMessage     = document.getElementById("error-message");
+const btnDemo          = document.getElementById("btn-demo");
+const demoProgress     = document.getElementById("demo-progress");
+const demoError        = document.getElementById("demo-error");
 
 // ---- Debug config ---------------------------------------------------------
 async function fetchConfig() {
@@ -135,6 +138,7 @@ function setFormEnabled(enabled) {
     c.style.opacity = enabled ? "1" : "0.6";
   });
   btnGenerate.disabled = !enabled;
+  btnDemo.disabled = !enabled;
   if (enabled) {
     btnGenerate.textContent = "✨ Create my file";
     btnStop.classList.add("hidden");
@@ -190,6 +194,8 @@ function showError(msg) {
 function resetForm() {
   hideAllAreas();
   clearFieldErrors();
+  demoProgress.classList.add("hidden");
+  demoError.classList.add("hidden");
   stopPreview();
   setFormEnabled(true);
   voiceCards.querySelector(".selected")?.classList.remove("selected");
@@ -523,6 +529,120 @@ async function doGenerate() {
   }
 }
 
+// ---- Demo (bundled sample article) ---------------------------------------
+function resetDemoRows() {
+  demoError.classList.add("hidden");
+  document.querySelectorAll("[data-demo-task]").forEach(row => {
+    row.classList.remove("done", "error");
+    row.querySelector("[data-demo-fill]").style.width = "0%";
+    row.querySelector("[data-demo-pct]").textContent = "0%";
+    const link = row.querySelector("[data-demo-download]");
+    link.classList.add("hidden");
+    link.removeAttribute("href");
+  });
+}
+
+function markDemoRowError(row, message) {
+  row.classList.add("error");
+  row.querySelector("[data-demo-pct]").textContent = "✗";
+  const link = row.querySelector("[data-demo-download]");
+  link.classList.add("hidden");
+  link.removeAttribute("href");
+  row.title = message || "Generation failed";
+}
+
+function showDemoError(message) {
+  demoError.textContent = message;
+  demoError.classList.add("visible");
+}
+
+async function doDemo() {
+  if (state !== "idle") return;
+
+  state = "generating";
+  stopPreview();
+  clearFieldErrors();
+  setFormEnabled(false);
+  resetDemoRows();
+  demoProgress.classList.remove("hidden");
+
+  try {
+    const startRes = await fetch("/api/demo", { method: "POST" });
+    if (!startRes.ok) {
+      let errMsg = `Server returned ${startRes.status}`;
+      try {
+        const body = await startRes.json();
+        if (body && body.error) errMsg = body.error;
+      } catch (_) {}
+      showDemoError(errMsg);
+      setFormEnabled(true);
+      state = "idle";
+      return;
+    }
+
+    const { tasks } = await startRes.json();
+    const taskIds = {};
+    tasks.forEach(t => { taskIds[t.format] = t.task_id; });
+
+    const formats = ["epub", "markdown", "audiobook"];
+    const finished = {};
+    const maxPolls = 900; // 15 minutes
+    for (let i = 0; i < maxPolls; i++) {
+      await new Promise(r => setTimeout(r, 1000));
+      let allDone = true;
+
+      for (const fmt of formats) {
+        if (finished[fmt]) continue;
+
+        const row = document.querySelector(`[data-demo-task="${fmt}"]`);
+        const pollRes = await fetch(`/api/task/${taskIds[fmt]}`);
+        if (!pollRes.ok) {
+          markDemoRowError(row, "Lost connection to the server.");
+          finished[fmt] = true;
+          continue;
+        }
+        const task = await pollRes.json();
+
+        if (task.status === "error" || task.status === "cancelled") {
+          markDemoRowError(row, task.error || "Generation failed.");
+          finished[fmt] = true;
+          continue;
+        }
+
+        row.querySelector("[data-demo-fill]").style.width = task.progress + "%";
+        row.querySelector("[data-demo-pct]").textContent = task.progress + "%";
+
+        if (task.status === "done") {
+          finished[fmt] = true;
+          row.classList.add("done");
+          const link = row.querySelector("[data-demo-download]");
+          link.href = task.download_url;
+          link.classList.remove("hidden");
+          continue;
+        }
+
+        allDone = false;
+      }
+
+      if (allDone) break;
+    }
+
+    if (formats.some(fmt => !finished[fmt])) {
+      showDemoError(
+        "The demo is taking longer than expected. Check that the server is still running."
+      );
+    }
+
+    setFormEnabled(true);
+    state = "idle";
+  } catch (err) {
+    console.error("Demo fetch error:", err);
+    showDemoError("Couldn't reach the server. Make sure reed web is running.");
+    setFormEnabled(true);
+    state = "idle";
+  }
+}
+
 // ---- Event listeners ------------------------------------------------------
 sourceToggle.addEventListener("click", (e) => {
   const btn = e.target.closest("button");
@@ -548,6 +668,7 @@ sourceToggle.addEventListener("click", (e) => {
 });
 
 btnGenerate.addEventListener("click", doGenerate);
+btnDemo.addEventListener("click", doDemo);
 
 btnStop.addEventListener("click", async () => {
   if (!currentTaskId) return;

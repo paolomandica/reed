@@ -138,6 +138,64 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
     </div>
   </div>
 
+  <!-- Demo card -->
+  <div class="card demo-card animate-in" style="animation-delay: 0.20s">
+    <div class="card-head">
+      <span class="step-badge" aria-hidden="true">✨</span>
+      <h2>Or try it instantly</h2>
+    </div>
+    <p class="hint">
+      No file needed — generate all three formats from a built-in sample article.
+    </p>
+    <button class="btn-demo" id="btn-demo">✨ Generate the demo</button>
+
+    <div id="demo-progress" class="demo-progress hidden">
+      <div class="demo-task" data-demo-task="epub">
+        <span class="demo-task-icon" aria-hidden="true">📖</span>
+        <div class="demo-task-body">
+          <div class="demo-task-name">EPUB</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" data-demo-fill="epub"></div>
+            </div>
+            <span class="progress-pct" data-demo-pct="epub">0%</span>
+          </div>
+        </div>
+        <a class="btn-download demo-download hidden" data-demo-download="epub" href="#">Download</a>
+      </div>
+
+      <div class="demo-task" data-demo-task="markdown">
+        <span class="demo-task-icon" aria-hidden="true">📝</span>
+        <div class="demo-task-body">
+          <div class="demo-task-name">Markdown</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" data-demo-fill="markdown"></div>
+            </div>
+            <span class="progress-pct" data-demo-pct="markdown">0%</span>
+          </div>
+        </div>
+        <a class="btn-download demo-download hidden" data-demo-download="markdown" href="#">Download</a>
+      </div>
+
+      <div class="demo-task" data-demo-task="audiobook">
+        <span class="demo-task-icon" aria-hidden="true">🎧</span>
+        <div class="demo-task-body">
+          <div class="demo-task-name">Audiobook</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" data-demo-fill="audiobook"></div>
+            </div>
+            <span class="progress-pct" data-demo-pct="audiobook">0%</span>
+          </div>
+        </div>
+        <a class="btn-download demo-download hidden" data-demo-download="audiobook" href="#">Download</a>
+      </div>
+    </div>
+
+    <p class="field-error hidden" id="demo-error" role="alert"></p>
+  </div>
+
   <!-- Actions -->
   <div class="animate-in" style="animation-delay: 0.24s">
     <button class="btn-generate" id="btn-generate">✨ Create my file</button>

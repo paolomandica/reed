@@ -8,8 +8,10 @@ Routes:
     GET  /api/models         List available TTS models
     GET  /api/preview        Short cached voice sample (voice, speed)
     POST /api/generate       Start generation, return task ID
+    POST /api/demo           Start all three formats from the bundled sample
     GET  /api/task/<id>      Poll task status / progress
     GET  /api/download/<id>  Download completed file
+    POST /api/task/<id>/stop Cancel a running task
 """
 
 import atexit
@@ -487,6 +489,80 @@ def create_app(debug: bool = False) -> Flask:
     def generate():
         """Start generation and return a task ID for polling."""
         return _handle_generate()
+
+    @app.route("/api/demo", methods=["POST"])
+    def demo():
+        """Start all three output formats from the bundled sample article.
+
+        Returns ``{"tasks": [{"format": ..., "task_id": ...}, ...]}`` with one
+        task per format (EPUB, Markdown, audiobook), pollable via
+        ``/api/task/<id>`` and downloadable once done.
+        """
+        _sweep_expired_tasks()
+
+        try:
+            from .sample import sample_article_path
+
+            sample = sample_article_path()
+            if not sample.is_file():
+                return jsonify({"error": "Bundled demo article not found."}), 500
+            article = extract_from_markdown(sample)
+        except Exception as exc:
+            logger.exception("Demo sample could not be loaded")
+            return jsonify({"error": str(exc)}), 500
+
+        if not _audiobook_slot.acquire(blocking=False):
+            return (
+                jsonify(
+                    {
+                        "error": (
+                            "Another audiobook is already generating. "
+                            "Try again when it finishes."
+                        )
+                    }
+                ),
+                429,
+            )
+
+        tasks: list[dict[str, str]] = []
+        try:
+            for fmt in ("epub", "markdown", "audiobook"):
+                task_id = str(uuid.uuid4())
+                cancel_event = threading.Event()
+                with _task_lock:
+                    _task_store[task_id] = {
+                        "status": "generating",
+                        "progress": 0,
+                        "message": "Starting…",
+                        "created_at": time.time(),
+                        "output_path": None,
+                        "download_name": "",
+                        "mime": "",
+                        "error": "",
+                        "cancel_event": cancel_event,
+                    }
+                thread = threading.Thread(
+                    target=_run_generation,
+                    args=(task_id,),
+                    kwargs={
+                        "fmt": fmt,
+                        "source_type": "paste",
+                        "article": article,
+                        "release_slot": fmt == "audiobook",
+                    },
+                    daemon=True,
+                )
+                thread.start()
+                tasks.append({"format": fmt, "task_id": task_id})
+        except Exception:
+            # Never leave the audiobook slot held or half-created tasks behind.
+            _audiobook_slot.release()
+            with _task_lock:
+                for task in tasks:
+                    _task_store.pop(task["task_id"], None)
+            raise
+
+        return jsonify({"tasks": tasks}), 202
 
     @app.route("/api/task/<task_id>")
     def get_task(task_id: str):
