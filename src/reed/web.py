@@ -12,9 +12,12 @@ Routes:
     GET  /api/download/<id>  Download completed file
 """
 
+import atexit
 import logging
+import signal
 import tempfile
 import threading
+import time
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -40,6 +43,67 @@ _task_lock = threading.Lock()
 # Serializes voice-preview synthesis so concurrent requests don't load the
 # model or write the same cache file twice.
 _preview_lock = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Task lifecycle (expiry + cleanup)
+# ---------------------------------------------------------------------------
+
+_TASK_TTL_SECONDS = 60 * 60  # finished results older than this are swept
+_AUDIOBOOK_CONCURRENCY = 1
+_audiobook_slot = threading.BoundedSemaphore(_AUDIOBOOK_CONCURRENCY)
+
+
+def _remove_task_output(task: dict) -> None:
+    """Unlink a completed task's temp file, if any."""
+    output_path = task.get("output_path")
+    if output_path:
+        try:
+            Path(output_path).unlink()
+        except OSError:
+            pass
+
+
+def _sweep_expired_tasks() -> None:
+    """Remove finished tasks older than the TTL and delete their temp files."""
+    now = time.time()
+    with _task_lock:
+        expired = [
+            task_id
+            for task_id, task in _task_store.items()
+            if task["status"] in ("done", "error", "cancelled")
+            and now - task.get("created_at", 0) > _TASK_TTL_SECONDS
+        ]
+        for task_id in expired:
+            task = _task_store.pop(task_id)
+            _remove_task_output(task)
+
+
+def _cleanup_all_tasks() -> None:
+    """Cancel running tasks and delete every temp file (shutdown path)."""
+    with _task_lock:
+        running = [t for t in _task_store.values() if t["status"] == "generating"]
+    for task in running:
+        cancel_event = task.get("cancel_event")
+        if cancel_event:
+            cancel_event.set()
+    with _task_lock:
+        for task in list(_task_store.values()):
+            _remove_task_output(task)
+        _task_store.clear()
+
+
+def install_shutdown_hooks() -> None:
+    """Clean up tasks on interpreter exit and on SIGTERM."""
+    atexit.register(_cleanup_all_tasks)
+
+    def _on_term(signum: int, frame: object) -> None:
+        _cleanup_all_tasks()
+        raise KeyboardInterrupt
+
+    try:
+        signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):
+        pass  # Not on the main thread (e.g. debug reloader worker).
 
 
 def _make_progress_callback(task_id: str):
@@ -70,6 +134,7 @@ def _run_generation(
     speed: float = 1.0,
     voice: str = "af_heart",
     max_chunks: int = 0,
+    release_slot: bool = False,
 ) -> None:
     """Run the output generation in a background thread.
 
@@ -165,6 +230,8 @@ def _run_generation(
                 t["status"] = "error"
                 t["error"] = str(exc)
     finally:
+        if release_slot:
+            _audiobook_slot.release()
         # Clean up the output tmp file (we copied the bytes to the result file)
         if output_tmp is not None:
             try:
@@ -183,6 +250,9 @@ def _handle_generate() -> tuple:
 
     Returns a ``(response, status_code)`` tuple suitable for Flask.
     """
+    # -- sweep stale results before accepting new work ----------------------
+    _sweep_expired_tasks()
+
     # -- validate format ------------------------------------------------------
     fmt = (request.form.get("format") or "").strip().lower()
     if fmt not in ("epub", "audiobook", "markdown"):
@@ -286,12 +356,32 @@ def _handle_generate() -> tuple:
             "status": "generating",
             "progress": 0,
             "message": "Starting…",
+            "created_at": time.time(),
             "output_path": None,
             "download_name": "",
             "mime": "",
             "error": "",
             "cancel_event": cancel_event,
         }
+
+    # One audiobook at a time — TTS loads the model into memory per run.
+    release_slot = False
+    if fmt == "audiobook":
+        if not _audiobook_slot.acquire(blocking=False):
+            with _task_lock:
+                _task_store.pop(task_id, None)
+            return (
+                jsonify(
+                    {
+                        "error": (
+                            "Another audiobook is already generating. "
+                            "Try again when it finishes."
+                        )
+                    }
+                ),
+                429,
+            )
+        release_slot = True
 
     thread = threading.Thread(
         target=_run_generation,
@@ -303,6 +393,7 @@ def _handle_generate() -> tuple:
             "speed": speed,
             "voice": voice,
             "max_chunks": max_chunks,
+            "release_slot": release_slot,
         },
         daemon=True,
     )
@@ -408,6 +499,7 @@ def create_app(debug: bool = False) -> Flask:
           - download_url: (when done) relative URL to download the file
           - error: (when error) error message
         """
+        _sweep_expired_tasks()
         with _task_lock:
             task = _task_store.get(task_id)
         if not task:

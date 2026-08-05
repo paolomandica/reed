@@ -41,7 +41,11 @@ def _resolve_article(
 
 def _setup_logging(verbose: bool) -> None:
     if verbose:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -241,7 +245,7 @@ def epub_cmd(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
+        click.echo(f"Unexpected error: {e}\nRun with -v for the full traceback.", err=True)
         if verbose:
             raise
         sys.exit(1)
@@ -378,7 +382,7 @@ def audiobook_cmd(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
+        click.echo(f"Unexpected error: {e}\nRun with -v for the full traceback.", err=True)
         if verbose:
             raise
         sys.exit(1)
@@ -410,8 +414,9 @@ def web_cmd(host: str, port: int, open_browser: bool, debug: bool) -> None:
     import os
     import socket
 
-    from .web import create_app
+    from .web import create_app, install_shutdown_hooks
 
+    install_shutdown_hooks()
     app = create_app(debug=debug)
 
     # 0.0.0.0 / :: are bind-all addresses, not browsable destinations — point
@@ -520,7 +525,7 @@ def markdown_cmd(
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Unexpected error: {e}", err=True)
+        click.echo(f"Unexpected error: {e}\nRun with -v for the full traceback.", err=True)
         if verbose:
             raise
         sys.exit(1)
