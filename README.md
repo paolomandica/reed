@@ -189,6 +189,9 @@ with 20 American English voices, Apache-2.0 licensed.
 
 Works with Substack, blogs, news sites, and any saved HTML article page.
 
+On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
+(MPS) when available and falls back to CPU otherwise.
+
 #### Prerequisites
 
 - **ffmpeg** and **espeak-ng** installed (see [System dependencies](#system-dependencies))

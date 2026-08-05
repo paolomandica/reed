@@ -72,3 +72,4 @@
 - 2026-08-05 — Phase 3 progress bar: TTY-aware chunk bar with narration snippet plus determinate ffmpeg encode bar; web keeps callback-only progress.
 - 2026-08-05 — Phase 3 demo: sample is original Markdown at `examples/reed-demo.md`, shipped inside the wheel; audiobook on by default with `--no-audiobook` opt-out.
 - 2026-08-05 — Phase 3 M4B: `--format mp3|m4b` CLI option on `audiobook` and `demo`; chapters from headings; MP3 remains the default; web UI stays MP3.
+- 2026-08-05 — MPS autodetect: Apple Silicon uses the Metal GPU (mps) when `torch.backends.mps.is_available()`; otherwise CUDA, then CPU; a failed MPS init falls back to CPU with a warning. Verified on this M3 MacBook Air (the Codex sandbox blocks Metal, so sandboxed runs use CPU).

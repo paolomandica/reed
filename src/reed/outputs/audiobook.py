@@ -109,8 +109,9 @@ def _load_kokoro_pipeline() -> object:
     Downloads ``hexgrad/Kokoro-82M`` from Hugging Face on first use.
     Uses American English (lang_code='a').
 
-    On Apple Silicon, sets ``PYTORCH_ENABLE_MPS_FALLBACK=1`` so Kokoro's
-    ops that don't have native MPS kernels fall back to CPU gracefully.
+    On Apple Silicon, uses the Metal (MPS) accelerator when available and
+    sets ``PYTORCH_ENABLE_MPS_FALLBACK=1`` so Kokoro's ops that don't have
+    native MPS kernels fall back to CPU gracefully.
     """
     from kokoro import KPipeline
 
@@ -119,10 +120,28 @@ def _load_kokoro_pipeline() -> object:
         # Enable MPS fallback on Apple Silicon
         if hasattr(os, "uname") and os.uname().sysname == "Darwin":
             os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-        click.echo("Loading Kokoro-82M pipeline (lang=en)...")
-        _kokoro_pipeline = KPipeline(lang_code="a")
+        device = _detect_device()
+        click.echo(f"Loading Kokoro-82M pipeline (lang=en, device={device})...")
+        try:
+            _kokoro_pipeline = KPipeline(lang_code="a", device=device)
+        except RuntimeError:
+            if device != "mps":
+                raise
+            click.echo("MPS failed to initialize — falling back to CPU.", err=True)
+            _kokoro_pipeline = KPipeline(lang_code="a", device="cpu")
         click.echo("Kokoro pipeline loaded (sample rate=24000 Hz).")
     return _kokoro_pipeline
+
+
+def _detect_device() -> str:
+    """Return the best available torch device: MPS, CUDA, or CPU."""
+    import torch
+
+    if torch.backends.mps.is_available():
+        return "mps"
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
 
 
 def _pipeline_device_label(pipeline: object) -> str:
