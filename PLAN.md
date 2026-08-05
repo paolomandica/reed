@@ -74,3 +74,4 @@
 - 2026-08-05 — Phase 3 M4B: `--format mp3|m4b` CLI option on `audiobook` and `demo`; chapters from headings; MP3 remains the default; web UI stays MP3.
 - 2026-08-05 — MPS autodetect: Apple Silicon uses the Metal GPU (mps) when `torch.backends.mps.is_available()`; otherwise CUDA, then CPU; a failed MPS init falls back to CPU with a warning. Verified on this M3 MacBook Air (the Codex sandbox blocks Metal, so sandboxed runs use CPU).
 - 2026-08-05 — Web demo: "✨ Generate the demo" button runs all three formats from the bundled sample via `POST /api/demo` (three pollable/downloadable tasks; audiobook respects the 1-at-a-time slot). Sample resolver moved to `src/reed/sample.py` so CLI and web share it.
+- 2026-08-05 — v0.3.0 prepared: M4B chapters, progress bars, demo (CLI + web), MPS autodetect. Tag `v0.3.0` pushed to GitHub; PyPI publish pending (user step).
