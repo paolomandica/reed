@@ -5,7 +5,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/reed-cli.svg)](https://pypi.org/project/reed-cli/)
 [![CI](https://img.shields.io/github/actions/workflow/status/paolomandica/reed/ci.yml.svg)](https://github.com/paolomandica/reed/actions)
 
-Convert saved article pages to EPUBs, Markdown, and MP3 audiobooks.
+Convert saved article pages to EPUBs, Markdown, and audiobooks.
 
 Works with saved HTML from Substack, blogs, news sites, and any
 long-form article page.
