@@ -172,7 +172,7 @@ def _run_generation(
 
         else:  # audiobook
             with tempfile.NamedTemporaryFile(
-                suffix=".mp3", delete=False
+                suffix=".m4b", delete=False
             ) as tmp:
                 output_tmp = Path(tmp.name)
 
@@ -189,8 +189,8 @@ def _run_generation(
             )
 
             output_bytes = BytesIO(output_tmp.read_bytes())
-            download_name = article.output_filename().replace(".epub", ".mp3")
-            mime = "audio/mpeg"
+            download_name = article.output_filename().replace(".epub", ".m4b")
+            mime = "audio/mp4"
 
         # Store the result file for later download
         with tempfile.NamedTemporaryFile(

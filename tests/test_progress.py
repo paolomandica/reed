@@ -92,6 +92,7 @@ class GenerateAudiobookProgressTests(unittest.TestCase):
             audiobook.generate_audiobook(
                 _demo_article(),
                 Path(directory) / "out.mp3",
+                output_format="mp3",
                 progress_callback=lambda c, t, m: calls.append((c, t, m)),
             )
             wav_mock = audiobook._wav_to_mp3
@@ -116,7 +117,11 @@ class GenerateAudiobookProgressTests(unittest.TestCase):
         ), mock.patch.object(audiobook.click, "echo", echo), mock.patch.object(
             audiobook.click._termui_impl, "echo"
         ):
-            audiobook.generate_audiobook(_demo_article(), Path(directory) / "out.mp3")
+            audiobook.generate_audiobook(
+                _demo_article(),
+                Path(directory) / "out.mp3",
+                output_format="mp3",
+            )
             wav_mock = audiobook._wav_to_mp3
 
         printed = [c.args[0] for c in echo.call_args_list if c.args]

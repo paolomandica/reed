@@ -275,7 +275,7 @@ def epub_cmd(
     "-o",
     "--output",
     type=click.Path(path_type=Path),
-    help="Output audio file path (default: <title-slug>.mp3)",
+    help="Output audio file path (default: <title-slug>.m4b)",
 )
 @click.option(
     "--html",
@@ -313,9 +313,9 @@ def epub_cmd(
     "--format",
     "output_format",
     type=click.Choice(["mp3", "m4b"]),
-    default="mp3",
+    default="m4b",
     show_default=True,
-    help="Audio container: mp3 (flat) or m4b (chaptered from headings).",
+    help="Audio container: m4b (chaptered from headings) or mp3 (flat).",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 @click.option(
@@ -348,8 +348,8 @@ def audiobook_cmd(
         reed audiobook --html article.html
         reed audiobook --html article.html --voice af_bella
         reed audiobook --md article.md --speed 0.85
-        reed audiobook -o out.mp3 --html article.html
-        reed audiobook --html article.html --format m4b
+        reed audiobook --html article.html --format mp3
+        reed audiobook -o out.m4b --html article.html
         reed audiobook --list-voices
     """
     # Lazy import — pulls in numpy, soundfile, kokoro (heavy)
@@ -595,9 +595,9 @@ def markdown_cmd(
     "--format",
     "output_format",
     type=click.Choice(["mp3", "m4b"]),
-    default="mp3",
+    default="m4b",
     show_default=True,
-    help="Audiobook container: mp3 (flat) or m4b (chaptered from headings).",
+    help="Audiobook container: m4b (chaptered from headings) or mp3 (flat).",
 )
 @click.option(
     "--no-audiobook",
@@ -622,7 +622,7 @@ def demo_cmd(
         reed demo
         reed demo --no-audiobook
         reed demo --voice af_bella --speed 0.85
-        reed demo --format m4b
+        reed demo --format mp3
     """
     _setup_logging(verbose)
 

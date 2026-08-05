@@ -123,6 +123,15 @@ class FfmetadataTests(unittest.TestCase):
 
 
 class GenerateAudiobookM4bTests(unittest.TestCase):
+    def test_m4b_is_the_default_output_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, _heavy_deps_patched(), mock.patch.object(
+            audiobook, "_wav_to_m4b"
+        ) as wav_m4b:
+            audiobook.generate_audiobook(_demo_article(), Path(directory) / "out.m4b")
+
+        wav_m4b.assert_called_once()
+        self.assertTrue(callable(wav_m4b.call_args.kwargs["progress_callback"]))
+
     def test_m4b_format_builds_chapters_and_encodes(self) -> None:
         with tempfile.TemporaryDirectory() as directory, _heavy_deps_patched(), mock.patch.object(
             audiobook, "_wav_to_m4b"
@@ -264,6 +273,29 @@ class RealM4bEncodingTests(unittest.TestCase):
 
 
 class AudiobookFormatCliTests(unittest.TestCase):
+    def test_m4b_is_default_format_in_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            md = Path(directory) / "article.md"
+            md.write_text("# Title\n\nBody.\n", encoding="utf-8")
+            with mock.patch(
+                "reed.outputs.generate_audiobook", return_value=Path("out.m4b")
+            ) as generate:
+                result = CliRunner().invoke(
+                    main,
+                    [
+                        "audiobook",
+                        "--md",
+                        str(md),
+                        "-o",
+                        str(Path(directory) / "book"),
+                    ],
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        generate.assert_called_once()
+        self.assertEqual(generate.call_args.args[1].suffix, ".m4b")
+        self.assertEqual(generate.call_args.kwargs["output_format"], "m4b")
+
     def test_invalid_format_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             md = Path(directory) / "article.md"

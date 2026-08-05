@@ -120,7 +120,7 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   epub        Generate a Kindle-compatible EPUB
-  audiobook   Generate an MP3 or M4B audiobook using Kokoro-82M TTS
+  audiobook   Generate an M4B or MP3 audiobook using Kokoro-82M TTS
   markdown    Generate a Markdown file
   demo        Try all three formats with a bundled sample article
   web         Start a browser-based web interface
@@ -134,8 +134,9 @@ Try every output format in one command with a bundled sample article:
 reed demo
 ```
 
-This generates `reed-demo/<article-title>.epub`, `.md`, and `.mp3`.
-Add `--no-audiobook` to skip the MP3 (and its first-run Kokoro model download):
+This generates `reed-demo/<article-title>.epub`, `.md`, and a chaptered `.m4b`
+audiobook. Add `--no-audiobook` to skip the audiobook (and its first-run
+Kokoro model download):
 
 ```bash
 reed demo --no-audiobook
@@ -187,7 +188,7 @@ Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
-Generate an MP3 or chaptered M4B audiobook from an article using **Kokoro-82M**
+Generate a chaptered M4B audiobook (or flat MP3) from an article using **Kokoro-82M**
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
 with 20 American English voices, Apache-2.0 licensed.
 
@@ -204,8 +205,11 @@ On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
 #### Quick start
 
 ```bash
-# Default voice (af_heart)
+# Default: chaptered M4B audiobook (voice af_heart)
 reed audiobook --html article.html
+
+# Flat MP3 instead
+reed audiobook --html article.html --format mp3
 
 # Pick a different voice
 reed audiobook --html article.html --voice af_bella
@@ -218,7 +222,7 @@ reed audiobook --html article.html --speed 0.85   # 15% slower
 reed audiobook --html article.html --speed 1.25   # faster
 
 # Custom output path
-reed audiobook -o my-article.mp3 --html article.html
+reed audiobook -o my-article.m4b --html article.html
 
 # From a Markdown file
 reed audiobook --md article.md --voice am_puck
@@ -226,17 +230,15 @@ reed audiobook --md article.md --voice am_puck
 
 #### Chaptered M4B (Apple Books / VLC)
 
-Add `--format m4b` to get a chaptered audiobook instead of a flat MP3.
-Chapters are derived from the article's section headings, so players show
-and jump between sections:
+M4B is the default audiobook format. Chapters are derived from the article's
+section headings, so players show and jump between sections:
 
 ```bash
-reed audiobook --html article.html --format m4b
-reed demo --format m4b
+reed audiobook --html article.html
 ```
 
-MP3 remains the default; `--format m4b` keeps the same voices, speed, and
-progress bars.
+Prefer a flat MP3 for maximum compatibility? Use `--format mp3` — the same
+voices, speed, and progress bars apply to both.
 
 #### Voices
 

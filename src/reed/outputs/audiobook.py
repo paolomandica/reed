@@ -810,7 +810,7 @@ def generate_audiobook(
     max_chars: int = _MAX_CHARS,
     silence_ms: int = 500,
     mp3_bitrate: str = "64k",
-    output_format: str = "mp3",
+    output_format: str = "m4b",
     speed: float = 1.0,
     progress_callback: Callable[[int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
@@ -829,8 +829,8 @@ def generate_audiobook(
         max_chars: Max characters per TTS chunk (default 500).
         silence_ms: Silence inserted between chunks.
         mp3_bitrate: LAME bitrate string, e.g. ``64k``.
-        output_format: Audio container, ``"mp3"`` (default) or ``"m4b"``
-            (chaptered from article headings).
+        output_format: Audio container, ``"m4b"`` (default, chaptered from
+            article headings) or ``"mp3"`` (flat).
         speed: Playback speed multiplier (default ``1.0``).  Applied
             natively during generation — no ffmpeg post-processing needed.
         progress_callback: Optional callback ``(current, total, message)``

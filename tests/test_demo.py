@@ -56,7 +56,7 @@ class DemoCommandTests(unittest.TestCase):
                 "How reed turns a saved article into an audiobook",
                 md.read_text(encoding="utf-8"),
             )
-            self.assertFalse(epub.with_suffix(".mp3").exists())
+            self.assertFalse(epub.with_suffix(".m4b").exists())
 
     def test_demo_rejects_invalid_speed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
