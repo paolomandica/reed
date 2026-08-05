@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -176,6 +177,7 @@ class NarrationSegment:
 
     text: str
     pause_after_ms: int
+    chapter_title: str = ""
 
 
 def _with_terminal_punctuation(text: str) -> str:
@@ -205,15 +207,18 @@ def narration_segments_for_tts(
     normal_pause = max(0, silence_ms)
     long_pause = normal_pause * 2
     short_pause = normal_pause // 2
-    units: list[tuple[str, int]] = []
+    units: list[tuple[str, int, str]] = []
+    chapter_title = ""
 
     title = article.metadata.title.strip()
     if title:
-        units.append((_with_terminal_punctuation(title), long_pause))
+        units.append((_with_terminal_punctuation(title), long_pause, chapter_title))
 
     author = article.metadata.author.strip()
     if author and author.casefold() != "unknown":
-        units.append((_with_terminal_punctuation(f"By {author}"), long_pause))
+        units.append(
+            (_with_terminal_punctuation(f"By {author}"), long_pause, chapter_title)
+        )
 
     for section in article.sections:
         text = section.text.strip()
@@ -227,22 +232,24 @@ def narration_segments_for_tts(
             continue
 
         if section.type in (SectionType.HEADING, SectionType.TITLE):
-            units.append((_with_terminal_punctuation(text), long_pause))
+            chapter_title = text
+            units.append((_with_terminal_punctuation(text), long_pause, chapter_title))
         elif section.type == SectionType.BLOCKQUOTE:
-            units.append((f"Quote: {text}", normal_pause))
+            units.append((f"Quote: {text}", normal_pause, chapter_title))
         elif section.type == SectionType.LIST_ITEM:
-            units.append((text, short_pause))
+            units.append((text, short_pause, chapter_title))
         else:
-            units.append((text, normal_pause))
+            units.append((text, normal_pause, chapter_title))
 
     segments: list[NarrationSegment] = []
-    for text, pause_after_ms in units:
+    for text, pause_after_ms, chapter in units:
         chunks = _split_long_text(text, max_chars)
         for index, chunk in enumerate(chunks):
             segments.append(
                 NarrationSegment(
                     text=chunk,
                     pause_after_ms=pause_after_ms if index == len(chunks) - 1 else 0,
+                    chapter_title=chapter,
                 )
             )
     return segments
@@ -425,12 +432,7 @@ def _wav_to_mp3(
     bitrate: str = "64k",
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> None:
-    """Encode *audio* as MP3 with ffmpeg, optionally reporting progress.
-
-    When *progress_callback* is provided, ffmpeg's ``-progress`` stream is
-    parsed as it is produced and the callback receives ``(current_ms,
-    total_ms, message)`` so callers can drive a determinate progress bar.
-    """
+    """Encode *audio* as MP3 with ffmpeg, optionally reporting progress."""
     wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
     total_ms = int(len(audio) / sample_rate * 1000)
 
@@ -458,6 +460,28 @@ def _wav_to_mp3(
         cmd += ["-metadata", f"artist={_ffmpeg_metadata_value(artist)}"]
     cmd += ["-metadata", "album=reed", str(output_path)]
 
+    _run_ffmpeg(
+        cmd,
+        wav_bytes,
+        total_ms,
+        progress_callback,
+        progress_message="Encoding MP3\u2026",
+    )
+
+
+def _run_ffmpeg(
+    cmd: list[str],
+    wav_bytes: bytes,
+    total_ms: int,
+    progress_callback: Callable[[int, int, str], None] | None,
+    *,
+    progress_message: str = "Encoding MP3\u2026",
+) -> None:
+    """Run ffmpeg with piped WAV input, streaming ``-progress`` updates.
+
+    Raises a user-friendly :class:`RuntimeError` when ffmpeg is missing,
+    times out, or exits non-zero.
+    """
     try:
         proc = subprocess.Popen(
             cmd,
@@ -513,7 +537,7 @@ def _wav_to_mp3(
                 break
             ms = _parse_ffmpeg_progress_ms(raw.decode("utf-8", errors="replace"))
             if ms is not None and ms != last_ms and progress_callback:
-                progress_callback(min(ms, total_ms), total_ms, "Encoding MP3…")
+                progress_callback(min(ms, total_ms), total_ms, progress_message)
                 last_ms = ms
     except subprocess.TimeoutExpired:
         proc.kill()
@@ -529,6 +553,148 @@ def _wav_to_mp3(
         raise RuntimeError(
             "ffmpeg failed:\n" + stderr.decode("utf-8", errors="replace")[-800:]
         )
+
+
+def _escape_ffmetadata(value: str) -> str:
+    """Escape a value for ffmpeg's ffmetadata format."""
+    value = _ffmpeg_metadata_value(value)
+    return (
+        value.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace("#", "\\#")
+        .replace("=", "\\=")
+    )
+
+
+def _ffmetadata_text(
+    title: str,
+    artist: str,
+    chapters: Sequence[tuple[str, int, int]],
+) -> str:
+    """Build an ffmpeg ffmetadata document with chapter markers."""
+    lines = [";FFMETADATA1"]
+    if title:
+        lines.append(f"title={_escape_ffmetadata(title)}")
+    if artist:
+        lines.append(f"artist={_escape_ffmetadata(artist)}")
+    lines.append("album=reed")
+    for chapter_title, start_ms, end_ms in chapters:
+        lines.append("[CHAPTER]")
+        lines.append("TIMEBASE=1/1000")
+        lines.append(f"START={max(0, int(start_ms))}")
+        lines.append(f"END={max(0, int(end_ms))}")
+        lines.append(f"title={_escape_ffmetadata(chapter_title)}")
+    return "\n".join(lines) + "\n"
+
+
+def _wav_to_m4b(
+    sample_rate: int,
+    audio: np.ndarray,
+    output_path: Path,
+    title: str = "",
+    artist: str = "",
+    chapters: Sequence[tuple[str, int, int]] | None = None,
+    bitrate: str = "64k",
+    progress_callback: Callable[[int, int, str], None] | None = None,
+) -> None:
+    """Encode *audio* as a chaptered M4B audiobook with ffmpeg.
+
+    Chapter markers are supplied as an ffmetadata input and mapped onto the
+    MP4 container, so players such as Apple Books and VLC show real chapters
+    with seek and skip.
+    """
+    wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
+    total_ms = int(len(audio) / sample_rate * 1000)
+
+    fd, metadata_path_str = tempfile.mkstemp(prefix="reed-chapters-", suffix=".txt")
+    metadata_path = Path(metadata_path_str)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(_ffmetadata_text(title, artist, chapters or []))
+
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-progress",
+            "pipe:1",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "wav",
+            "-i",
+            "pipe:0",
+            "-f",
+            "ffmetadata",
+            "-i",
+            str(metadata_path),
+            "-map_metadata",
+            "1",
+            "-codec:a",
+            "aac",
+            "-b:a",
+            bitrate,
+            "-movflags",
+            "+faststart",
+            str(output_path),
+        ]
+        _run_ffmpeg(
+            cmd,
+            wav_bytes,
+            total_ms,
+            progress_callback,
+            progress_message="Encoding M4B\u2026",
+        )
+    finally:
+        metadata_path.unlink(missing_ok=True)
+
+
+def _build_chapter_ranges(
+    segments: Sequence[NarrationSegment],
+    durations_ms: Sequence[int],
+    fallback_title: str,
+) -> list[tuple[str, int, int]]:
+    """Map narration segments to chapter ranges ``(title, start_ms, end_ms)``.
+
+    A new chapter starts at every segment whose :attr:`chapter_title` differs
+    from the current one; *fallback_title* names pre-heading content. Timings
+    follow the final concatenated audio: each segment's spoken duration plus
+    its trailing pause (skipped for the last segment), matching
+    :func:`_concat_audio`.
+    """
+    if len(segments) != len(durations_ms):
+        raise ValueError("segments and durations_ms must be the same length")
+    if not segments:
+        return []
+
+    chapters: list[tuple[str, int, int]] = []
+    current_title: str | None = None
+    position_ms = 0
+    last_index = len(segments) - 1
+
+    for index, (segment, duration_ms) in enumerate(zip(segments, durations_ms)):
+        chapter = segment.chapter_title or fallback_title
+        if chapter != current_title:
+            if chapters and position_ms > chapters[-1][1]:
+                prev_title, prev_start, _ = chapters[-1]
+                chapters[-1] = (prev_title, prev_start, position_ms)
+                chapters.append((chapter, position_ms, position_ms))
+            elif chapters:
+                # Back-to-back boundary with no content in between: retitle the
+                # open range instead of emitting a zero-length chapter.
+                _, prev_start, _ = chapters[-1]
+                chapters[-1] = (chapter, prev_start, prev_start)
+            else:
+                chapters.append((chapter, position_ms, position_ms))
+            current_title = chapter
+        position_ms += max(0, duration_ms)
+        if index < last_index:
+            position_ms += max(0, segment.pause_after_ms)
+
+    title, start, _ = chapters[-1]
+    chapters[-1] = (title, start, position_ms)
+    return chapters
 
 
 # ---------------------------------------------------------------------------
@@ -625,12 +791,13 @@ def generate_audiobook(
     max_chars: int = _MAX_CHARS,
     silence_ms: int = 500,
     mp3_bitrate: str = "64k",
+    output_format: str = "mp3",
     speed: float = 1.0,
     progress_callback: Callable[[int, int, str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     max_chunks: int = 0,
 ) -> Path:
-    """Convert an article to spoken audio and save as MP3.
+    """Convert an article to spoken audio and save as MP3 or chaptered M4B.
 
     Uses ``hexgrad/Kokoro-82M`` (82M params, 20 American English voices,
     Apache-2.0 licensed).  Requires the ``espeak-ng`` system package.
@@ -643,6 +810,8 @@ def generate_audiobook(
         max_chars: Max characters per TTS chunk (default 500).
         silence_ms: Silence inserted between chunks.
         mp3_bitrate: LAME bitrate string, e.g. ``64k``.
+        output_format: Audio container, ``"mp3"`` (default) or ``"m4b"``
+            (chaptered from article headings).
         speed: Playback speed multiplier (default ``1.0``).  Applied
             natively during generation — no ffmpeg post-processing needed.
         progress_callback: Optional callback ``(current, total, message)``
@@ -656,8 +825,11 @@ def generate_audiobook(
             (useful for quick testing).  Default ``0`` = all chunks.
 
     Returns:
-        Path to the generated MP3.
+        Path to the generated audio file.
     """
+    if output_format not in ("mp3", "m4b"):
+        raise ValueError("output_format must be 'mp3' or 'm4b'")
+
     pipeline = _load_kokoro_pipeline()
     click.echo(f"Kokoro model device: {_pipeline_device_label(pipeline)}")
 
@@ -679,6 +851,7 @@ def generate_audiobook(
     )
 
     audio_chunks: list[tuple[int, np.ndarray, int]] = []
+    chunk_durations_ms: list[int] = []
     failed = False
     show_bar = progress_callback is None
 
@@ -710,6 +883,7 @@ def generate_audiobook(
                 break
 
             audio_chunks.append((sr, audio, segment.pause_after_ms))
+            chunk_durations_ms.append(int(len(audio) / sr * 1000))
             bar.update(1, current_item=segment)
             if progress_callback:
                 progress_callback(i, len(segments), "Generating audio…")
@@ -731,21 +905,39 @@ def generate_audiobook(
     title = getattr(article.metadata, "title", "") or ""
     artist = getattr(article.metadata, "author", "") or ""
 
+    def _encode(encode_progress: Callable[[int, int, str], None]) -> None:
+        if output_format == "m4b":
+            has_headings = any(segment.chapter_title for segment in segments)
+            fallback = "Introduction" if has_headings else (title or "Chapter 1")
+            chapters = _build_chapter_ranges(segments, chunk_durations_ms, fallback)
+            _wav_to_m4b(
+                combined_sr,
+                combined_audio,
+                output_path,
+                title=title,
+                artist=artist,
+                chapters=chapters,
+                bitrate=mp3_bitrate,
+                progress_callback=encode_progress,
+            )
+        else:
+            _wav_to_mp3(
+                combined_sr,
+                combined_audio,
+                output_path,
+                title=title,
+                artist=artist,
+                bitrate=mp3_bitrate,
+                progress_callback=encode_progress,
+            )
+
     if progress_callback is not None:
-        _wav_to_mp3(
-            combined_sr,
-            combined_audio,
-            output_path,
-            title=title,
-            artist=artist,
-            bitrate=mp3_bitrate,
-            progress_callback=progress_callback,
-        )
+        _encode(progress_callback)
     else:
         total_ms = max(1, int(len(combined_audio) / combined_sr * 1000))
         with click.progressbar(
             length=total_ms,
-            label="Encoding MP3",
+            label="Encoding M4B" if output_format == "m4b" else "Encoding MP3",
             show_pos=True,
         ) as encode_bar:
             last_ms = 0
@@ -755,15 +947,7 @@ def generate_audiobook(
                 encode_bar.update(max(0, current - last_ms))
                 last_ms = current
 
-            _wav_to_mp3(
-                combined_sr,
-                combined_audio,
-                output_path,
-                title=title,
-                artist=artist,
-                bitrate=mp3_bitrate,
-                progress_callback=_report_encode,
-            )
+            _encode(_report_encode)
 
     status = "partial audiobook" if failed else "Audiobook"
     click.echo(f"\n✓ {status} generated: {output_path}")

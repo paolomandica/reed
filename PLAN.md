@@ -28,7 +28,10 @@
 
 ## Phase 3 — Feature upgrades
 
-- [ ] Chaptered M4B audiobooks from section headings (option alongside MP3)
+- [x] **Chaptered M4B audiobooks from section headings (option alongside MP3)**
+  - `reed audiobook --format m4b` encodes AAC/M4B via ffmpeg and embeds chapter markers derived from the article's section headings; pre-heading content becomes an "Introduction" chapter, and heading-less articles get a single chapter named by the title.
+  - Chapter timings are computed from real chunk durations plus pauses as audio is generated, so markers stay in sync with the narration (verified with ffprobe).
+  - `reed demo --format m4b` passes the option through; MP3 stays the default everywhere, and the web UI keeps MP3 for now.
 - [ ] Multi-article anthology EPUB: queue several articles → one book with combined TOC
 - [x] **CLI progress bar during audiobook generation**
   - TTS chunk bar is TTY-aware and shows a live snippet of the narration segment; per-chunk `Chunk i/n` lines only print when stdout is not a TTY (piped runs).
@@ -68,3 +71,4 @@
 - 2026-08-05 — Phase 2 version: done — v0.2.0 tagged, GitHub release created, and reed-cli 0.2.0 published to PyPI (fresh install verified).
 - 2026-08-05 — Phase 3 progress bar: TTY-aware chunk bar with narration snippet plus determinate ffmpeg encode bar; web keeps callback-only progress.
 - 2026-08-05 — Phase 3 demo: sample is original Markdown at `examples/reed-demo.md`, shipped inside the wheel; audiobook on by default with `--no-audiobook` opt-out.
+- 2026-08-05 — Phase 3 M4B: `--format mp3|m4b` CLI option on `audiobook` and `demo`; chapters from headings; MP3 remains the default; web UI stays MP3.

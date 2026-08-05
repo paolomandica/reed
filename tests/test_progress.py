@@ -114,7 +114,7 @@ class GenerateAudiobookProgressTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, _heavy_deps_patched(), mock.patch.object(
             audiobook, "_stdout_is_tty", return_value=False
         ), mock.patch.object(audiobook.click, "echo", echo), mock.patch.object(
-            audiobook.click.utils, "echo"
+            audiobook.click._termui_impl, "echo"
         ):
             audiobook.generate_audiobook(_demo_article(), Path(directory) / "out.mp3")
             wav_mock = audiobook._wav_to_mp3

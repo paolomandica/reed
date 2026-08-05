@@ -86,7 +86,7 @@ def main(ctx: click.Context) -> None:
     \b
     Commands:
       epub        Generate a Kindle-compatible EPUB
-      audiobook   Generate an MP3 audiobook using Kokoro-82M TTS
+      audiobook   Generate an MP3 or M4B audiobook using Kokoro-82M TTS
       markdown    Generate a Markdown file
       demo        Generate all three formats from a bundled sample
       web         Start a browser-based web interface
@@ -321,6 +321,14 @@ def epub_cmd(
     show_default=True,
     help="Playback speed (0.5–2.0). 0.85 = 15%% slower, 1.0 = normal.",
 )
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["mp3", "m4b"]),
+    default="mp3",
+    show_default=True,
+    help="Audio container: mp3 (flat) or m4b (chaptered from headings).",
+)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 @click.option(
     "--max-sections",
@@ -335,10 +343,11 @@ def audiobook_cmd(
     voice: str,
     list_voices: bool,
     speed: float,
+    output_format: str,
     verbose: bool,
     max_sections: int = 0,
 ) -> None:
-    """Generate an MP3 audiobook from an article using Kokoro-82M TTS.
+    """Generate an MP3 or chaptered M4B audiobook using Kokoro-82M TTS.
 
     \b
     Kokoro-82M is a lightweight (82M params) open-weight TTS model with
@@ -352,6 +361,7 @@ def audiobook_cmd(
         reed audiobook --html article.html --voice af_bella
         reed audiobook --md article.md --speed 0.85
         reed audiobook -o out.mp3 --html article.html
+        reed audiobook --html article.html --format m4b
         reed audiobook --list-voices
     """
     # Lazy import — pulls in numpy, soundfile, kokoro (heavy)
@@ -386,22 +396,24 @@ def audiobook_cmd(
         )
 
         # Determine output path
+        suffix = ".m4b" if output_format == "m4b" else ".mp3"
         if output:
             output_path = output
         else:
             audiobooks_dir = Path("audiobooks")
             audiobooks_dir.mkdir(exist_ok=True)
             output_path = audiobooks_dir / article.output_filename().replace(
-                ".epub", ".mp3"
+                ".epub", suffix
             )
-        if output_path.suffix != ".mp3":
-            output_path = output_path.with_suffix(".mp3")
+        if output_path.suffix != suffix:
+            output_path = output_path.with_suffix(suffix)
 
         generate_audiobook(
             article,
             output_path,
             voice=voice,
             speed=speed,
+            output_format=output_format,
         )
 
     except ValueError as e:
@@ -592,6 +604,14 @@ def markdown_cmd(
     help="Only narrate the first N chunks (0 = all). Quick-test shortcut.",
 )
 @click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["mp3", "m4b"]),
+    default="mp3",
+    show_default=True,
+    help="Audiobook container: mp3 (flat) or m4b (chaptered from headings).",
+)
+@click.option(
     "--no-audiobook",
     "no_audiobook",
     is_flag=True,
@@ -603,16 +623,18 @@ def demo_cmd(
     voice: str,
     speed: float,
     max_chunks: int,
+    output_format: str,
     no_audiobook: bool,
     verbose: bool,
 ) -> None:
-    """Generate EPUB, Markdown, and MP3 from a bundled sample article.
+    """Generate EPUB, Markdown, and an MP3 or M4B audiobook from a sample.
 
     \b
     A zero-setup way to try every reed output format:
         reed demo
         reed demo --no-audiobook
         reed demo --voice af_bella --speed 0.85
+        reed demo --format m4b
     """
     _setup_logging(verbose)
 
@@ -637,7 +659,8 @@ def demo_cmd(
         generate_markdown(article, md_path)
         click.echo(f"✓ Markdown: {md_path}")
 
-        mp3_path = epub_path.with_suffix(".mp3")
+        suffix = ".m4b" if output_format == "m4b" else ".mp3"
+        mp3_path = epub_path.with_suffix(suffix)
         if no_audiobook:
             click.echo("○ Audiobook: skipped (--no-audiobook)")
         else:
@@ -659,6 +682,7 @@ def demo_cmd(
                 voice=voice,
                 speed=speed,
                 max_chunks=max_chunks,
+                output_format=output_format,
             )
 
         click.echo(f"\n✓ Demo complete — files are in {output_dir}")

@@ -116,7 +116,7 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 
 Commands:
   epub        Generate a Kindle-compatible EPUB
-  audiobook   Generate an MP3 audiobook using Kokoro-82M TTS
+  audiobook   Generate an MP3 or M4B audiobook using Kokoro-82M TTS
   markdown    Generate a Markdown file
   demo        Try all three formats with a bundled sample article
   web         Start a browser-based web interface
@@ -183,7 +183,7 @@ Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
-Generate an MP3 audiobook from an article using **Kokoro-82M**
+Generate an MP3 or chaptered M4B audiobook from an article using **Kokoro-82M**
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
 with 20 American English voices, Apache-2.0 licensed.
 
@@ -216,6 +216,20 @@ reed audiobook -o my-article.mp3 --html article.html
 # From a Markdown file
 reed audiobook --md article.md --voice am_puck
 ```
+
+#### Chaptered M4B (Apple Books / VLC)
+
+Add `--format m4b` to get a chaptered audiobook instead of a flat MP3.
+Chapters are derived from the article's section headings, so players show
+and jump between sections:
+
+```bash
+reed audiobook --html article.html --format m4b
+reed demo --format m4b
+```
+
+MP3 remains the default; `--format m4b` keeps the same voices, speed, and
+progress bars.
 
 #### Voices
 
