@@ -21,7 +21,7 @@
 
 - [x] Re-add GitHub Actions CI: ruff, mypy, unittest, package build check
 - [x] Add README badges (CI status, license, Python versions) — the LICENSE file itself is added in Phase 1 item 1
-- [ ] Single source of truth for the version (package metadata); bump to 0.2.0; tag a GitHub release
+- [x] Single source of truth for the version (package metadata); bump to 0.2.0; tag a GitHub release
 - [x] Harden the web server: result-file cleanup, task expiry, concurrency cap, graceful shutdown of running tasks
 - [x] Improve error UX: non-verbose CLI errors hint at `-v` for details; structured logging
 - [x] Expand tests: HTML parser fixtures, EPUB validation, web API task lifecycle, Markdown round-trip
@@ -59,3 +59,4 @@
 - 2026-08-05 — Phase 2 web: 1 concurrent audiobook generation (429 on overload), 1-hour result expiry, shutdown cleanup.
 - 2026-08-05 — Phase 2 tests: 26 passing (parser fixtures, EPUB round-trip, web API lifecycle).
 - 2026-08-05 — Phase 2 version: single-sourced via package metadata, bumped to 0.2.0; tag v0.2.0, GitHub release, and PyPI upload pending.
+- 2026-08-05 — Phase 2 version: done — v0.2.0 tagged, GitHub release created, and reed-cli 0.2.0 published to PyPI (fresh install verified).
