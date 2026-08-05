@@ -66,6 +66,9 @@ reed = "reed.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/reed"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"examples/reed-demo.md" = "reed/examples/reed-demo.md"
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"

@@ -35,3 +35,5 @@ jobs:
         run: uv run python -m unittest discover -s tests
       - name: Build
         run: uv build
+      - name: Verify demo sample is bundled in the wheel
+        run: unzip -l dist/*.whl | grep -q "reed/examples/reed-demo.md"

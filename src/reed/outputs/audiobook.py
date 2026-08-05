@@ -21,9 +21,13 @@ import logging
 import os
 import re
 import subprocess
+import sys
+import threading
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from queue import Empty, Queue
 from typing import Any
 
 import click
@@ -43,6 +47,7 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 _kokoro_pipeline: object | None = None  # KPipeline
 _MAX_CHARS = 500
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
+_FFMPEG_TIMEOUT_SECONDS = 120
 
 # Fixed sentence used for voice previews so the audio can be cached and
 # reused across requests (same voice + speed → identical clip).
@@ -384,6 +389,33 @@ def _ffmpeg_metadata_value(value: str) -> str:
     return re.sub(r"[\x00-\x1f\x7f]", " ", value).strip()
 
 
+def _stdout_is_tty() -> bool:
+    """Return True when stdout is attached to an interactive terminal."""
+    return sys.stdout.isatty()
+
+
+def _parse_ffmpeg_progress_ms(line: str) -> int | None:
+    """Return encoded milliseconds from an ffmpeg ``-progress`` line.
+
+    ffmpeg emits ``out_time_ms=...`` (and ``out_time_us=...``) once per
+    encoded block; all other lines in the stream are ignored.
+    """
+    key, sep, value = line.strip().partition("=")
+    if not sep:
+        return None
+    if key == "out_time_ms":
+        try:
+            return max(0, int(value))
+        except ValueError:
+            return None
+    if key == "out_time_us":
+        try:
+            return max(0, int(value) // 1000)
+        except ValueError:
+            return None
+    return None
+
+
 def _wav_to_mp3(
     sample_rate: int,
     audio: np.ndarray,
@@ -391,12 +423,23 @@ def _wav_to_mp3(
     title: str = "",
     artist: str = "",
     bitrate: str = "64k",
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> None:
+    """Encode *audio* as MP3 with ffmpeg, optionally reporting progress.
+
+    When *progress_callback* is provided, ffmpeg's ``-progress`` stream is
+    parsed as it is produced and the callback receives ``(current_ms,
+    total_ms, message)`` so callers can drive a determinate progress bar.
+    """
     wav_bytes = _numpy_to_wav_bytes(sample_rate, audio)
+    total_ms = int(len(audio) / sample_rate * 1000)
 
     cmd = [
         "ffmpeg",
         "-hide_banner",
+        "-nostats",
+        "-progress",
+        "pipe:1",
         "-loglevel",
         "error",
         "-y",
@@ -416,11 +459,11 @@ def _wav_to_mp3(
     cmd += ["-metadata", "album=reed", str(output_path)]
 
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            input=wav_bytes,
-            capture_output=True,
-            timeout=120,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
     except FileNotFoundError:
         raise RuntimeError(
@@ -429,12 +472,63 @@ def _wav_to_mp3(
             "                  apt install ffmpeg     (Linux)\n"
             "                  winget install ffmpeg  (Windows)"
         ) from None
-    except subprocess.TimeoutExpired:
-        raise RuntimeError("ffmpeg timed out while encoding audio.") from None
 
-    if proc.returncode != 0:
-        stderr = proc.stderr.decode("utf-8", errors="replace")[-800:]
-        raise RuntimeError(f"ffmpeg failed:\n{stderr}")
+    def _feed() -> None:
+        try:
+            if proc.stdin is not None:
+                proc.stdin.write(wav_bytes)
+        except (BrokenPipeError, OSError):
+            pass
+        finally:
+            if proc.stdin is not None:
+                proc.stdin.close()
+
+    progress: Queue[bytes | None] = Queue()
+
+    def _read() -> None:
+        if proc.stdout is None:
+            progress.put(None)
+            return
+        for raw in proc.stdout:
+            progress.put(raw)
+        progress.put(None)
+
+    feeder = threading.Thread(target=_feed, daemon=True)
+    reader = threading.Thread(target=_read, daemon=True)
+    feeder.start()
+    reader.start()
+
+    last_ms = -1
+    try:
+        deadline = time.monotonic() + _FFMPEG_TIMEOUT_SECONDS
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(cmd, _FFMPEG_TIMEOUT_SECONDS)
+            try:
+                raw = progress.get(timeout=remaining)
+            except Empty:
+                continue
+            if raw is None:
+                break
+            ms = _parse_ffmpeg_progress_ms(raw.decode("utf-8", errors="replace"))
+            if ms is not None and ms != last_ms and progress_callback:
+                progress_callback(min(ms, total_ms), total_ms, "Encoding MP3…")
+                last_ms = ms
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise RuntimeError("ffmpeg timed out while encoding audio.") from None
+    finally:
+        reader.join(timeout=1)
+        feeder.join(timeout=1)
+
+    stderr = proc.stderr.read() if proc.stderr else b""
+    returncode = proc.wait()
+    if returncode != 0:
+        raise RuntimeError(
+            "ffmpeg failed:\n" + stderr.decode("utf-8", errors="replace")[-800:]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +603,15 @@ def generate_voice_preview(
     return cache_path
 
 
+def _narration_snippet(segment: NarrationSegment | None) -> str:
+    """Return a short single-line label for a narration segment."""
+    if segment is None:
+        return ""
+    text = segment.text.strip()
+    snippet = text if len(text) <= 40 else text[:40].rstrip() + "\u2026"
+    return f" {snippet}"
+
+
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
@@ -543,7 +646,10 @@ def generate_audiobook(
         speed: Playback speed multiplier (default ``1.0``).  Applied
             natively during generation — no ffmpeg post-processing needed.
         progress_callback: Optional callback ``(current, total, message)``
-            called after each TTS chunk completes.
+            called after each TTS chunk and during MP3 encoding. When set,
+            interactive CLI progress output (bar and per-chunk lines) is
+            suppressed; the callback is the only progress channel (used by
+            the web server).
         cancel_check: Optional callable that returns ``True`` when
             generation should be cancelled early.
         max_chunks: If > 0, only generate the first *max_chunks* chunks
@@ -574,11 +680,14 @@ def generate_audiobook(
 
     audio_chunks: list[tuple[int, np.ndarray, int]] = []
     failed = False
+    show_bar = progress_callback is None
 
     with click.progressbar(
         length=len(segments),
         label="Generating audio",
         show_pos=True,
+        hidden=not show_bar,
+        item_show_func=_narration_snippet,
     ) as bar:
         for i, segment in enumerate(segments, start=1):
             try:
@@ -601,13 +710,14 @@ def generate_audiobook(
                 break
 
             audio_chunks.append((sr, audio, segment.pause_after_ms))
-            bar.update(1)
+            bar.update(1, current_item=segment)
             if progress_callback:
                 progress_callback(i, len(segments), "Generating audio…")
             if cancel_check and cancel_check():
                 click.echo("\nGeneration cancelled by user.")
                 raise RuntimeError("cancelled")
-            click.echo(f"  Chunk {i}/{len(segments)} done")
+            if show_bar and not _stdout_is_tty():
+                click.echo(f"  Chunk {i}/{len(segments)} done")
 
     if not audio_chunks:
         raise RuntimeError("No audio was generated. Check the errors above.")
@@ -618,17 +728,42 @@ def generate_audiobook(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    click.echo("Encoding to MP3...")
     title = getattr(article.metadata, "title", "") or ""
     artist = getattr(article.metadata, "author", "") or ""
-    _wav_to_mp3(
-        combined_sr,
-        combined_audio,
-        output_path,
-        title=title,
-        artist=artist,
-        bitrate=mp3_bitrate,
-    )
+
+    if progress_callback is not None:
+        _wav_to_mp3(
+            combined_sr,
+            combined_audio,
+            output_path,
+            title=title,
+            artist=artist,
+            bitrate=mp3_bitrate,
+            progress_callback=progress_callback,
+        )
+    else:
+        total_ms = max(1, int(len(combined_audio) / combined_sr * 1000))
+        with click.progressbar(
+            length=total_ms,
+            label="Encoding MP3",
+            show_pos=True,
+        ) as encode_bar:
+            last_ms = 0
+
+            def _report_encode(current: int, total: int, message: str) -> None:
+                nonlocal last_ms
+                encode_bar.update(max(0, current - last_ms))
+                last_ms = current
+
+            _wav_to_mp3(
+                combined_sr,
+                combined_audio,
+                output_path,
+                title=title,
+                artist=artist,
+                bitrate=mp3_bitrate,
+                progress_callback=_report_encode,
+            )
 
     status = "partial audiobook" if failed else "Audiobook"
     click.echo(f"\n✓ {status} generated: {output_path}")

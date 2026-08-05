@@ -118,7 +118,23 @@ Commands:
   epub        Generate a Kindle-compatible EPUB
   audiobook   Generate an MP3 audiobook using Kokoro-82M TTS
   markdown    Generate a Markdown file
+  demo        Try all three formats with a bundled sample article
   web         Start a browser-based web interface
+```
+
+### Demo
+
+Try every output format in one command with a bundled sample article:
+
+```bash
+reed demo
+```
+
+This generates `reed-demo/<article-title>.epub`, `.md`, and `.mp3`.
+Add `--no-audiobook` to skip the MP3 (and its first-run Kokoro model download):
+
+```bash
+reed demo --no-audiobook
 ```
 
 ### EPUB generation

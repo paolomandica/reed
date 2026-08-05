@@ -59,6 +59,19 @@ def _package_version() -> str:
         return __version__
 
 
+def _sample_article_path() -> Path:
+    """Locate the bundled demo article (wheel data file or source checkout)."""
+    try:
+        from importlib.resources import files
+
+        resource = files("reed").joinpath("examples", "reed-demo.md")
+        if resource.is_file():
+            return Path(resource)  # type: ignore[arg-type]
+    except (ModuleNotFoundError, OSError, TypeError):
+        pass
+    return Path(__file__).resolve().parents[2] / "examples" / "reed-demo.md"
+
+
 # ---------------------------------------------------------------------------
 # Click group
 # ---------------------------------------------------------------------------
@@ -75,11 +88,13 @@ def main(ctx: click.Context) -> None:
       epub        Generate a Kindle-compatible EPUB
       audiobook   Generate an MP3 audiobook using Kokoro-82M TTS
       markdown    Generate a Markdown file
+      demo        Generate all three formats from a bundled sample
       web         Start a browser-based web interface
       doctor      Check audiobook dependencies
 
     \b
     Examples:
+      reed demo
       reed epub --html saved_article.html
       reed epub --md article.md
       reed markdown --html saved_article.html
@@ -532,6 +547,121 @@ def markdown_cmd(
         generate_markdown(article, output_path)
         click.echo(f"✓ Markdown generated: {output_path}")
 
+    except ValueError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Unexpected error: {e}\nRun with -v for the full traceback.", err=True)
+        if verbose:
+            raise
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# demo subcommand
+# ---------------------------------------------------------------------------
+
+
+@main.command("demo")
+@click.option(
+    "--output-dir",
+    "output_dir",
+    type=click.Path(path_type=Path),
+    default=Path("reed-demo"),
+    show_default=True,
+    help="Directory for the generated demo files",
+)
+@click.option(
+    "--voice",
+    type=str,
+    default="af_heart",
+    show_default=True,
+    help="Kokoro voice for the audiobook",
+)
+@click.option(
+    "--speed",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Playback speed (0.5-2.0). 0.85 = 15%% slower, 1.0 = normal.",
+)
+@click.option(
+    "--max-chunks",
+    type=int,
+    default=0,
+    help="Only narrate the first N chunks (0 = all). Quick-test shortcut.",
+)
+@click.option(
+    "--no-audiobook",
+    "no_audiobook",
+    is_flag=True,
+    help="Generate only EPUB and Markdown (skips Kokoro and ffmpeg).",
+)
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
+def demo_cmd(
+    output_dir: Path,
+    voice: str,
+    speed: float,
+    max_chunks: int,
+    no_audiobook: bool,
+    verbose: bool,
+) -> None:
+    """Generate EPUB, Markdown, and MP3 from a bundled sample article.
+
+    \b
+    A zero-setup way to try every reed output format:
+        reed demo
+        reed demo --no-audiobook
+        reed demo --voice af_bella --speed 0.85
+    """
+    _setup_logging(verbose)
+
+    try:
+        sample = _sample_article_path()
+        if not sample.is_file():
+            raise ValueError(
+                f"Bundled demo article not found: {sample}\n"
+                "Reinstall reed (uv tool install --force reed-cli) to restore it."
+            )
+        logger.info("Demo sample article: %s", sample)
+        article = extract_from_markdown(sample)
+
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        epub_path = output_dir / article.output_filename()
+        generate_epub(article, epub_path)
+        click.echo(f"✓ EPUB: {epub_path}")
+
+        md_path = epub_path.with_suffix(".md")
+        generate_markdown(article, md_path)
+        click.echo(f"✓ Markdown: {md_path}")
+
+        mp3_path = epub_path.with_suffix(".mp3")
+        if no_audiobook:
+            click.echo("○ Audiobook: skipped (--no-audiobook)")
+        else:
+            if speed < 0.5 or speed > 2.0:
+                raise ValueError("--speed must be between 0.5 and 2.0")
+
+            missing = _check_system_binaries()
+            if missing:
+                click.echo(_system_dependency_hint(missing), err=True)
+                click.echo("Audiobook dependencies are missing — run `reed doctor`.", err=True)
+                sys.exit(1)
+
+            # Lazy import — pulls in numpy, soundfile, kokoro (heavy)
+            from .outputs import generate_audiobook
+
+            generate_audiobook(
+                article,
+                mp3_path,
+                voice=voice,
+                speed=speed,
+                max_chunks=max_chunks,
+            )
+
+        click.echo(f"\n✓ Demo complete — files are in {output_dir}")
     except ValueError as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)

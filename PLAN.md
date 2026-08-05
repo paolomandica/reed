@@ -30,8 +30,14 @@
 
 - [ ] Chaptered M4B audiobooks from section headings (option alongside MP3)
 - [ ] Multi-article anthology EPUB: queue several articles → one book with combined TOC
-- [ ] CLI progress bar during audiobook generation
-- [ ] Bundle a sample article (`examples/`) and add `reed demo` generating all three formats
+- [x] **CLI progress bar during audiobook generation**
+  - TTS chunk bar is TTY-aware and shows a live snippet of the narration segment; per-chunk `Chunk i/n` lines only print when stdout is not a TTY (piped runs).
+  - Determinate ffmpeg encode bar driven by `-progress pipe:1` (`out_time_ms` parsed against the known audio duration).
+  - Web mode keeps its `progress_callback` as the only progress channel — no bars or chunk lines leak into server logs; encode progress is reported through the callback too.
+- [x] **Bundle a sample article (`examples/`) and add `reed demo` generating all three formats**
+  - Sample: `examples/reed-demo.md` — original ~200-word Markdown article (headings, blockquote, list), force-included into the wheel as `reed/examples/reed-demo.md`; a resolver falls back to the repo copy in source checkouts.
+  - `reed demo [--output-dir reed-demo] [--voice af_heart] [--speed 1.0] [--max-chunks 0] [--no-audiobook]` generates EPUB → Markdown → MP3 into one folder. Audiobook is on by default; `--no-audiobook` skips it (and the ffmpeg/espeak-ng pre-check); missing deps print the fix command plus a `reed doctor` hint.
+  - CI asserts the wheel contains `reed/examples/reed-demo.md`.
 
 ## Phase 4 — Demo & README polish
 
@@ -60,3 +66,5 @@
 - 2026-08-05 — Phase 2 tests: 26 passing (parser fixtures, EPUB round-trip, web API lifecycle).
 - 2026-08-05 — Phase 2 version: single-sourced via package metadata, bumped to 0.2.0; tag v0.2.0, GitHub release, and PyPI upload pending.
 - 2026-08-05 — Phase 2 version: done — v0.2.0 tagged, GitHub release created, and reed-cli 0.2.0 published to PyPI (fresh install verified).
+- 2026-08-05 — Phase 3 progress bar: TTY-aware chunk bar with narration snippet plus determinate ffmpeg encode bar; web keeps callback-only progress.
+- 2026-08-05 — Phase 3 demo: sample is original Markdown at `examples/reed-demo.md`, shipped inside the wheel; audiobook on by default with `--no-audiobook` opt-out.
