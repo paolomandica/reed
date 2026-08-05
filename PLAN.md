@@ -5,7 +5,7 @@
 
 ## Phase 1 — Easy install
 
-- [ ] **Publish reed to PyPI** so install is `uv tool install reed-cli` / `pipx install reed-cli` (command stays `reed`)
+- [x] **Publish reed to PyPI** so install is `uv tool install reed-cli` / `pipx install reed-cli` (command stays `reed`)
   - Distribution name is `reed-cli` — the PyPI name `reed` is taken by an abandoned 0.0.x package. The import package and console command both stay `reed`.
   - Release version: 0.1.0 (matches current code; the 0.2.0 bump stays in Phase 2).
   - Metadata: add `authors` (paolomandica), `license = "Apache-2.0"`, keywords, classifiers, and `[project.urls]` → GitHub repo in `pyproject.toml`.
@@ -52,5 +52,6 @@
 - 2026-08-05 — PyPI distribution name: `reed-cli` (command stays `reed`).
 - 2026-08-05 — First release version: 0.1.0; publish via TestPyPI first, then PyPI with an API token.
 - 2026-08-05 — Phase 1 item 1: local packaging verified (build, wheel install, publish dry-run); TestPyPI/PyPI uploads await tokens.
+- 2026-08-05 — Phase 1 item 1: done — `reed-cli` 0.1.0 published to PyPI; fresh `uv tool install reed-cli` verified.
 - 2026-08-05 — Phase 1 item 3: done — expanded `reed doctor` with Python/uv checks, per-OS fix commands, and TTS-library check.
 - 2026-08-05 — Phase 1 item 4: macOS script verified locally; Linux end-to-end run pending on a clean Ubuntu machine (user step).
