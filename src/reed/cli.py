@@ -4,6 +4,7 @@ import logging
 import shutil
 import sys
 import webbrowser
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import click
@@ -48,13 +49,23 @@ def _setup_logging(verbose: bool) -> None:
         )
 
 
+def _package_version() -> str:
+    """Return the installed reed version, falling back for source checkouts."""
+    try:
+        return version("reed-cli")
+    except PackageNotFoundError:
+        from reed import __version__
+
+        return __version__
+
+
 # ---------------------------------------------------------------------------
 # Click group
 # ---------------------------------------------------------------------------
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.1.0", prog_name="reed")
+@click.version_option(version=_package_version(), prog_name="reed")
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """Convert articles to ebooks and audiobooks.
