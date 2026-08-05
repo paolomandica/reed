@@ -76,3 +76,4 @@
 - 2026-08-05 — MPS autodetect: Apple Silicon uses the Metal GPU (mps) when `torch.backends.mps.is_available()`; otherwise CUDA, then CPU; a failed MPS init falls back to CPU with a warning. Verified on this M3 MacBook Air (the Codex sandbox blocks Metal, so sandboxed runs use CPU).
 - 2026-08-05 — Web demo: "✨ Generate the demo" button runs all three formats from the bundled sample via `POST /api/demo` (three pollable/downloadable tasks; audiobook respects the 1-at-a-time slot). Sample resolver moved to `src/reed/sample.py` so CLI and web share it.
 - 2026-08-05 — v0.3.0 prepared: M4B chapters, progress bars, demo (CLI + web), MPS autodetect. Tag `v0.3.0` pushed to GitHub; PyPI publish pending (user step).
+- 2026-08-05 — Release workflow documented in `AGENTS.md` (version bump incl. `uv.lock`, build, tag, publish hand-off, `gh release create`).
