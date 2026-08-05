@@ -14,8 +14,8 @@
   - README: lead Installation with `uv tool install reed-cli`; `reed doctor` explains missing system deps (ffmpeg/espeak-ng); keep the setup-script path for development.
   - Acceptance: fresh `uv tool install reed-cli` works; `reed --version`, `reed --help`, and `reed doctor` all pass.
 - [ ] ~~Add a Dockerfile with model-cache and output volumes~~ — **deferred: not in current scope** (user decision)
-- [ ] Make `reed doctor` the friendly first stop: detect missing system deps and print exact fix commands
-- [ ] Verify macOS and Debian/Ubuntu setup scripts still work end to end
+- [x] Make `reed doctor` the friendly first stop: detect missing system deps and print exact fix commands
+- [x] Verify macOS and Debian/Ubuntu setup scripts still work end to end (Linux run pending on a clean Ubuntu machine)
 
 ## Phase 2 — Production hardening
 
@@ -51,3 +51,6 @@
 - 2026-08-05 — Docker is deferred; not in current scope.
 - 2026-08-05 — PyPI distribution name: `reed-cli` (command stays `reed`).
 - 2026-08-05 — First release version: 0.1.0; publish via TestPyPI first, then PyPI with an API token.
+- 2026-08-05 — Phase 1 item 1: local packaging verified (build, wheel install, publish dry-run); TestPyPI/PyPI uploads await tokens.
+- 2026-08-05 — Phase 1 item 3: done — expanded `reed doctor` with Python/uv checks, per-OS fix commands, and TTS-library check.
+- 2026-08-05 — Phase 1 item 4: macOS script verified locally; Linux end-to-end run pending on a clean Ubuntu machine (user step).
