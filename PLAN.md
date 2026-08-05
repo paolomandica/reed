@@ -78,3 +78,4 @@
 - 2026-08-05 — v0.3.0 prepared: M4B chapters, progress bars, demo (CLI + web), MPS autodetect. Tag `v0.3.0` pushed to GitHub; PyPI publish pending (user step).
 - 2026-08-05 — Release workflow documented in `AGENTS.md` (version bump incl. `uv.lock`, build, tag, publish hand-off, `gh release create`).
 - 2026-08-05 — v0.3.0 released: `reed-cli` 0.3.0 published to PyPI and GitHub release created (tag `v0.3.0`).
+- 2026-08-05 — v0.3.1 released: patch fix — M4B album tag now carries the article title so Apple Books shows the book title instead of "reed".
