@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class MarkdownParsingTests(unittest.TestCase):
     def test_included_book_metadata_is_not_body_or_narration(self) -> None:
-        article = extract_from_markdown(ROOT / "markdowns" / "the-man.md")
+        article = extract_from_markdown(ROOT / "tests" / "fixtures" / "the-man.md")
 
         self.assertEqual(article.title, "The Man in the Brown Suit")
         self.assertEqual(article.author, "Agatha Christie")
