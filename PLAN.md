@@ -19,12 +19,12 @@
 
 ## Phase 2 — Production hardening
 
-- [ ] Re-add GitHub Actions CI: ruff, mypy, pytest, package build check
-- [ ] Add README badges (CI status, license, Python versions) — the LICENSE file itself is added in Phase 1 item 1
+- [x] Re-add GitHub Actions CI: ruff, mypy, unittest, package build check
+- [x] Add README badges (CI status, license, Python versions) — the LICENSE file itself is added in Phase 1 item 1
 - [ ] Single source of truth for the version (package metadata); bump to 0.2.0; tag a GitHub release
-- [ ] Harden the web server: result-file cleanup, task expiry, concurrency cap, graceful shutdown of running tasks
-- [ ] Improve error UX: non-verbose CLI errors hint at `-v` for details; structured logging
-- [ ] Expand tests: HTML parser fixtures, EPUB validation, web API task lifecycle, Markdown round-trip
+- [x] Harden the web server: result-file cleanup, task expiry, concurrency cap, graceful shutdown of running tasks
+- [x] Improve error UX: non-verbose CLI errors hint at `-v` for details; structured logging
+- [x] Expand tests: HTML parser fixtures, EPUB validation, web API task lifecycle, Markdown round-trip
 
 ## Phase 3 — Feature upgrades
 
@@ -55,3 +55,7 @@
 - 2026-08-05 — Phase 1 item 1: done — `reed-cli` 0.1.0 published to PyPI; fresh `uv tool install reed-cli` verified.
 - 2026-08-05 — Phase 1 item 3: done — expanded `reed doctor` with Python/uv checks, per-OS fix commands, and TTS-library check.
 - 2026-08-05 — Phase 1 item 4: macOS script verified locally; Linux end-to-end run pending on a clean Ubuntu machine (user step).
+- 2026-08-05 — Phase 2 CI: Ubuntu + macOS on Python 3.13; ruff, mypy, unittest, build; badges added.
+- 2026-08-05 — Phase 2 web: 1 concurrent audiobook generation (429 on overload), 1-hour result expiry, shutdown cleanup.
+- 2026-08-05 — Phase 2 tests: 26 passing (parser fixtures, EPUB round-trip, web API lifecycle).
+- 2026-08-05 — Phase 2 version: single-sourced via package metadata, bumped to 0.2.0; tag v0.2.0, GitHub release, and PyPI upload pending.
