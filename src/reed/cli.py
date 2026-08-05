@@ -86,14 +86,20 @@ def main(ctx: click.Context) -> None:
 @main.command("doctor")
 def doctor_cmd() -> None:
     """Check whether reed is ready to generate audiobooks."""
-    missing = False
-    for name in ("ffmpeg", "espeak-ng"):
-        path = shutil.which(name)
-        if path:
-            click.echo(f"✓ {name}: {path}")
-        else:
-            click.echo(f"✗ {name}: not found on PATH")
-            missing = True
+    problems: list[str] = []
+
+    if not _check_python():
+        problems.append("python")
+
+    _check_uv()
+
+    missing_binaries = _check_system_binaries()
+    if missing_binaries:
+        problems.extend(missing_binaries)
+        click.echo(_system_dependency_hint(missing_binaries))
+
+    if not _check_tts_libraries():
+        problems.append("tts-libraries")
 
     model_cache = Path.home() / ".cache" / "huggingface" / "hub" / "models--hexgrad--Kokoro-82M"
     if model_cache.exists():
@@ -101,11 +107,75 @@ def doctor_cmd() -> None:
     else:
         click.echo("○ Kokoro model: will download on first audiobook generation")
 
-    if missing:
-        click.echo("Run the setup script for your operating system, then try again.", err=True)
-        raise click.ClickException("required system dependencies are missing")
+    if problems:
+        click.echo("", err=True)
+        click.echo("Fix the items above, then run `reed doctor` again.", err=True)
+        raise click.ClickException("reed is missing required components")
 
     click.echo("reed is ready for audiobook generation.")
+
+
+def _check_python() -> bool:
+    """Return True when the running Python satisfies reed's requirement."""
+    version = sys.version.split()[0]
+    if sys.version_info >= (3, 13):
+        click.echo(f"✓ Python: {version}")
+        return True
+    click.echo(f"✗ Python: {version} (reed requires Python 3.13+)")
+    return False
+
+
+def _check_uv() -> None:
+    """Report whether uv is available (needed only for tool installs)."""
+    path = shutil.which("uv")
+    if path:
+        click.echo(f"✓ uv: {path}")
+    else:
+        click.echo(
+            "○ uv: not found on PATH — needed only for `uv tool install reed-cli`.\n"
+            "  Install: https://docs.astral.sh/uv/getting-started/installation/"
+        )
+
+
+def _check_system_binaries() -> list[str]:
+    """Check ffmpeg/espeak-ng and return the names that are missing."""
+    missing: list[str] = []
+    for name in ("ffmpeg", "espeak-ng"):
+        path = shutil.which(name)
+        if path:
+            click.echo(f"✓ {name}: {path}")
+        else:
+            click.echo(f"✗ {name}: not found on PATH")
+            missing.append(name)
+    return missing
+
+
+def _system_dependency_hint(missing: list[str]) -> str:
+    """Return the exact install command for the current platform."""
+    if sys.platform == "darwin":
+        return "  Install with: brew install " + " ".join(missing)
+    if sys.platform.startswith("linux") and shutil.which("apt-get"):
+        return "  Install with: sudo apt-get install -y " + " ".join(missing)
+    return (
+        "  Install ffmpeg and espeak-ng for your operating system "
+        "(see the README's System dependencies section)."
+    )
+
+
+def _check_tts_libraries() -> bool:
+    """Check that the TTS libraries import correctly (no model download)."""
+    try:
+        import soundfile  # noqa: F401
+        import torch  # noqa: F401
+        from kokoro import KPipeline  # noqa: F401
+    except ImportError as exc:
+        click.echo(f"✗ TTS libraries: {exc}")
+        click.echo(
+            "  Reinstall reed with its dependencies: `uv tool install --force reed-cli`"
+        )
+        return False
+    click.echo("✓ TTS libraries: kokoro, torch, soundfile")
+    return True
 
 
 # ---------------------------------------------------------------------------
