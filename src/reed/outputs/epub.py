@@ -1,14 +1,13 @@
 """Generate Kindle-compatible EPUB files using EbookLib."""
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from ebooklib import epub
 
-from ..models import Article, ContentSection, SectionType
 from ..css import KINDLE_CSS
+from ..models import Article, ContentSection, SectionType
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +111,7 @@ def generate_epub(article: Article, output_path: Path) -> Path:
         book.add_metadata("DC", "description", article.metadata.description)
     book.add_metadata("DC", "publisher", "reed")
 
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     book.add_metadata(
         None, "meta", now, {"property": "dcterms:modified"}
     )
@@ -158,7 +157,11 @@ def generate_epub(article: Article, output_path: Path) -> Path:
                 epub.Link("content.xhtml", section.text, f"toc-{section.text[:20]}")
             )
 
-    book.toc = toc_entries if toc_entries else [epub.Link("content.xhtml", article.metadata.title, "content")]
+    book.toc = (
+        toc_entries
+        if toc_entries
+        else [epub.Link("content.xhtml", article.metadata.title, "content")]
+    )
 
     # --- Navigation ---
     book.add_item(epub.EpubNcx())

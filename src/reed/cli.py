@@ -118,7 +118,7 @@ def doctor_cmd() -> None:
 def _check_python() -> bool:
     """Return True when the running Python satisfies reed's requirement."""
     version = sys.version.split()[0]
-    if sys.version_info >= (3, 13):
+    if sys.version_info >= (3, 13):  # noqa: UP036 — friendly check for older interpreters
         click.echo(f"✓ Python: {version}")
         return True
     click.echo(f"✗ Python: {version} (reed requires Python 3.13+)")

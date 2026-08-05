@@ -6,11 +6,11 @@ selectors where possible.
 """
 
 import json
-import re
 import logging
+import re
 from pathlib import Path
 
-from bs4 import BeautifulSoup, Tag, NavigableString
+from bs4 import BeautifulSoup, NavigableString, Tag
 
 from ..models import Article, ArticleMetadata, ContentSection, SectionType
 
@@ -266,7 +266,9 @@ def find_author(soup: BeautifulSoup) -> tuple[str | None, str | None]:
             return (name, handle)
 
     # 4. Substack: look for a byline div containing a name and date
-    for el in soup.find_all(["div", "span"], class_=lambda c: c and "byline" in " ".join(c).lower()):
+    for el in soup.find_all(
+        ["div", "span"], class_=lambda c: c and "byline" in " ".join(c).lower()
+    ):
         text = cleanup_text(el.get_text(" ", strip=True))
         if text:
             # The first part before a date is typically the author name
@@ -582,7 +584,11 @@ def _decompose_non_content(root: Tag) -> None:
                     break
 
     # Share buttons / engagement bars
-    for el in list(root.find_all(string=lambda t: t and cleanup_text(t).lower() in ("share", "restack"))):
+    for el in list(
+        root.find_all(
+            string=lambda t: t and cleanup_text(t).lower() in ("share", "restack")
+        )
+    ):
         container = el.parent
         for _ in range(4):
             if container is None or container is root:

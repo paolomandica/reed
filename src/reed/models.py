@@ -1,7 +1,6 @@
 """Data models for article content and metadata."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from uuid import uuid4
 

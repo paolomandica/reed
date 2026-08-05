@@ -241,7 +241,7 @@ def _handle_generate() -> tuple:
                     jsonify({"error": "file is required when source_type is 'file'"}),
                     400,
                 )
-            fname_lower = uploaded.filename.lower()
+            fname_lower = (uploaded.filename or "").lower()
             if not (fname_lower.endswith((".html", ".htm")) or fname_lower.endswith(".md")):
                 return (
                     jsonify(

@@ -50,7 +50,9 @@ dependencies = [
 dev = [
     "certifi>=2026.5.20",
     "certifi-linux>=1.1.0",
+    "mypy>=1.15.0",
     "python-certifi-win32>=1.6.1",
+    "ruff>=0.11.0",
 ]
 
 [project.urls]
@@ -63,3 +65,31 @@ reed = "reed.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "reed.inputs.html_file"
+# BeautifulSoup's dynamic attribute typing (dict attrs, AttributeValueList,
+# Tag/NavigableString unions) produces noise that is not actionable here.
+disable_error_code = [
+    "arg-type",
+    "assignment",
+    "call-overload",
+    "operator",
+    "return-value",
+    "union-attr",
+]

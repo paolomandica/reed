@@ -21,9 +21,10 @@ import logging
 import os
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import click
 import numpy as np
@@ -121,6 +122,8 @@ def _load_kokoro_pipeline() -> object:
 def _pipeline_device_label(pipeline: object) -> str:
     """Return the device used by a loaded Kokoro model."""
     model = getattr(pipeline, "model", None)
+    if model is None:
+        return "UNKNOWN"
     try:
         device = next(model.parameters()).device
     except (AttributeError, StopIteration):
@@ -136,7 +139,7 @@ def _pipeline_device_label(pipeline: object) -> str:
 
 def _generate_kokoro_speech(
     text: str,
-    pipeline: object,
+    pipeline: Any,
     *,
     voice: str = "af_heart",
     speed: float = 1.0,
@@ -346,7 +349,7 @@ def _as_float32_mono(audio: np.ndarray) -> np.ndarray:
 
 
 def _concat_audio(
-    audio_chunks: list[tuple[int, np.ndarray] | tuple[int, np.ndarray, int]],
+    audio_chunks: Sequence[tuple[int, np.ndarray] | tuple[int, np.ndarray, int]],
     silence_ms: int = 500,
 ) -> tuple[int, np.ndarray]:
     """Concatenate audio, honoring an optional pause on each chunk."""
@@ -366,7 +369,7 @@ def _concat_audio(
             continue
         pause_ms = chunk[2] if len(chunk) == 3 else silence_ms
         if pause_ms > 0:
-            parts.append(_make_silence(pause_ms, sr0, np.float32))
+            parts.append(_make_silence(pause_ms, sr0, np.dtype(np.float32)))
 
     return sr0, np.concatenate(parts)
 

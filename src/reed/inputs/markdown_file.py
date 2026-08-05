@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from bs4 import BeautifulSoup
@@ -64,7 +64,7 @@ def _inline_html_to_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
     image = soup.find("img")
     if image:
-        return image.get("alt", "")
+        return str(image.get("alt", ""))
     if soup.find("br"):
         return " "
     return ""

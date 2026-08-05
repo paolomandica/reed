@@ -1,5 +1,10 @@
 # reed
 
+[![PyPI version](https://img.shields.io/pypi/v/reed-cli.svg)](https://pypi.org/project/reed-cli/)
+[![License](https://img.shields.io/github/license/paolomandica/reed.svg)](LICENSE)
+[![Python versions](https://img.shields.io/pypi/pyversions/reed-cli.svg)](https://pypi.org/project/reed-cli/)
+[![CI](https://img.shields.io/github/actions/workflow/status/paolomandica/reed/ci.yml.svg)](https://github.com/paolomandica/reed/actions)
+
 Convert saved article pages to EPUBs, Markdown, and MP3 audiobooks.
 
 Works with saved HTML from Substack, blogs, news sites, and any
