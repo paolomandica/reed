@@ -117,9 +117,15 @@ class FfmetadataTests(unittest.TestCase):
         self.assertTrue(text.startswith(";FFMETADATA1\n"))
         self.assertIn("title=T \\= The Book\n", text)
         self.assertIn("artist=A\\; Author\n", text)
-        self.assertIn("album=reed\n", text)
+        self.assertIn("album=T \\= The Book\n", text)
         self.assertIn("[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1500\ntitle=Intro\n", text)
         self.assertIn("START=1500\nEND=3200\ntitle=Chapter 1\n", text)
+
+    def test_album_falls_back_to_reed_without_a_title(self) -> None:
+        text = audiobook._ffmetadata_text("", "Author", [("Intro", 0, 1000)])
+        header = text.split("[CHAPTER]")[0]
+        self.assertIn("album=reed\n", header)
+        self.assertNotIn("title=", header)
 
 
 class GenerateAudiobookM4bTests(unittest.TestCase):

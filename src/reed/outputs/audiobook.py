@@ -596,7 +596,9 @@ def _ffmetadata_text(
         lines.append(f"title={_escape_ffmetadata(title)}")
     if artist:
         lines.append(f"artist={_escape_ffmetadata(artist)}")
-    lines.append("album=reed")
+    # Apple Books treats the album tag as the book title, so it must carry
+    # the article title rather than the app name.
+    lines.append(f"album={_escape_ffmetadata(title or 'reed')}")
     for chapter_title, start_ms, end_ms in chapters:
         lines.append("[CHAPTER]")
         lines.append("TIMEBASE=1/1000")
