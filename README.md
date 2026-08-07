@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/reed-logo.png" alt="reed logo" width="180">
+</p>
+
 # reed
 
 [![PyPI version](https://img.shields.io/pypi/v/reed-cli.svg)](https://pypi.org/project/reed-cli/)
