@@ -176,11 +176,12 @@ def _check_tts_libraries() -> bool:
         import soundfile  # noqa: F401
         import torch  # noqa: F401
         from kokoro import KPipeline  # noqa: F401
+        from misaki import en, espeak  # noqa: F401
     except ImportError as exc:
         click.echo(f"✗ TTS libraries: {exc}")
         click.echo("  Reinstall reed with its dependencies: `uv tool install --force reed-cli`")
         return False
-    click.echo("✓ TTS libraries: kokoro, torch, soundfile")
+    click.echo("✓ TTS libraries: kokoro, misaki[en], torch, soundfile")
     return True
 
 
@@ -313,8 +314,8 @@ def audiobook_cmd(
 
     \b
     Kokoro-82M is a lightweight (82M params) open-weight TTS model with
-    American and British English voices.  Requires the espeak-ng system
-    package.
+    American and British English voices.  Misaki is the primary English
+    phonemizer; espeak-ng handles out-of-dictionary fallback words.
 
     The model is downloaded from Hugging Face on first run and cached locally.
 

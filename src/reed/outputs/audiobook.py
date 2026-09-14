@@ -1,10 +1,13 @@
 """Generate audiobooks from articles using Kokoro-82M TTS.
 
+Kokoro uses Misaki as its primary English grapheme-to-phoneme engine. Misaki
+uses espeak-ng as an out-of-dictionary fallback for English words.
+
 Install::
 
-    pip install kokoro soundfile click numpy
+    pip install kokoro 'misaki[en]' soundfile click numpy
 
-Kokoro requires the ``espeak-ng`` system package::
+The English fallback requires the ``espeak-ng`` system package::
 
     brew install espeak-ng   # macOS
     apt install espeak-ng    # Linux
@@ -859,7 +862,8 @@ def generate_audiobook(
     """Convert an article to spoken audio and save as MP3 or chaptered M4B.
 
     Uses ``hexgrad/Kokoro-82M`` (82M params, American and British English
-    voices, Apache-2.0 licensed).  Requires the ``espeak-ng`` system package.
+    voices, Apache-2.0 licensed).  Misaki is the primary English phonemizer;
+    espeak-ng handles out-of-dictionary fallback words.
 
     Args:
         article: Structured article with content sections.

@@ -71,6 +71,31 @@ class DoctorCommandTests(TestCase):
         self.assertIn("✗ TTS libraries: No module named 'torch'", result.output)
         self.assertIn("uv tool install --force reed-cli", result.output)
 
+    def test_doctor_reports_missing_misaki(self) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "misaki":
+                raise ImportError("No module named 'misaki'")
+            return real_import(name, *args, **kwargs)
+
+        with TemporaryDirectory() as directory:
+            with (
+                patch("builtins.__import__", side_effect=fake_import),
+                patch(
+                    "reed.cli.shutil.which",
+                    side_effect=["/usr/bin/uv", "/usr/bin/ffmpeg", "/usr/bin/espeak-ng"],
+                ),
+                patch("reed.cli.Path.home", return_value=Path(directory)),
+            ):
+                result = CliRunner().invoke(main, ["doctor"])
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("✗ TTS libraries: No module named 'misaki'", result.output)
+        self.assertIn("uv tool install --force reed-cli", result.output)
+
 
 class InputOptionTests(TestCase):
     """Tests for the --input / -i option replacing --html and --md."""
@@ -115,4 +140,3 @@ class InputOptionTests(TestCase):
     def test_epub_without_input_shows_error(self) -> None:
         result = CliRunner().invoke(main, ["epub"])
         self.assertNotEqual(result.exit_code, 0)
-

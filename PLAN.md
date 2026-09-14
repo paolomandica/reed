@@ -28,6 +28,9 @@
 
 ## Phase 3 — Feature upgrades
 
+- [ ] **Use Misaki as the primary English Kokoro phonemizer**
+  - `misaki[en]` is declared directly; Kokoro handles Misaki G2P first and espeak-ng remains the out-of-dictionary fallback.
+
 - [x] **Chaptered M4B audiobooks from section headings (option alongside MP3)**
   - `reed audiobook --format m4b` encodes AAC/M4B via ffmpeg and embeds chapter markers derived from the article's section headings; pre-heading content becomes an "Introduction" chapter, and heading-less articles get a single chapter named by the title.
   - Chapter timings are computed from real chunk durations plus pauses as audio is generated, so markers stay in sync with the narration (verified with ffprobe).
@@ -74,6 +77,7 @@
 - 2026-08-05 — Phase 3 M4B: `--format mp3|m4b` CLI option on `audiobook` and `demo`; chapters from headings.
 - 2026-08-05 — M4B is the default audiobook format (CLI, `demo`, and web); `--format mp3` opts into flat MP3.
 - 2026-08-05 — MPS autodetect: Apple Silicon uses the Metal GPU (mps) when `torch.backends.mps.is_available()`; otherwise CUDA, then CPU; a failed MPS init falls back to CPU with a warning. Verified on this M3 MacBook Air (the Codex sandbox blocks Metal, so sandboxed runs use CPU).
+- 2026-09-14 — English G2P: declare `misaki[en]` directly; Kokoro's Misaki phonemizer remains primary and espeak-ng remains the OOD fallback.
 - 2026-08-05 — Web demo: "✨ Generate the demo" button runs all three formats from the bundled sample via `POST /api/demo` (three pollable/downloadable tasks; audiobook respects the 1-at-a-time slot). Sample resolver moved to `src/reed/sample.py` so CLI and web share it.
 - 2026-08-05 — v0.3.0 prepared: M4B chapters, progress bars, demo (CLI + web), MPS autodetect. Tag `v0.3.0` pushed to GitHub; PyPI publish pending (user step).
 - 2026-08-05 — Release workflow documented in `AGENTS.md` (version bump incl. `uv.lock`, build, tag, publish hand-off, `gh release create`).

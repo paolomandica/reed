@@ -36,7 +36,7 @@ reed doctor
 ```
 
 `reed doctor` checks the Python version, the `ffmpeg` and `espeak-ng`
-system dependencies, and the TTS libraries — printing the exact fix
+system dependencies, and the Kokoro/Misaki TTS libraries — printing the exact fix
 command for your operating system if anything is missing. The Kokoro
 TTS model is downloaded from Hugging Face on first audiobook generation
 and cached locally; no API key is needed.
@@ -178,12 +178,17 @@ Generate a chaptered M4B audiobook (or flat MP3) from an article using **Kokoro-
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
 with American and British English voices, Apache-2.0 licensed.
 
+For English, Kokoro uses Misaki as the primary phonemizer, with espeak-ng
+available as the out-of-dictionary fallback. American and British voices use
+their corresponding Kokoro language pipeline.
+
 On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
 (MPS) when available and falls back to CPU otherwise.
 
 #### Prerequisites
 
-- **ffmpeg** and **espeak-ng** installed (see [System dependencies](#system-dependencies))
+- **ffmpeg** and **espeak-ng** installed (see [System dependencies](#system-dependencies)); espeak-ng is used for Misaki's out-of-dictionary fallback
+- Kokoro and `misaki[en]` (installed automatically with reed)
 - The Kokoro model is downloaded from Hugging Face on first run and cached locally — no API key needed.
 
 #### Quick start
@@ -307,4 +312,4 @@ section with no metadata detection.
 2. **Extract**: reed parses the input, detecting metadata (title, author, date) and structuring content into sections
 3. **Convert**: the extracted content is converted to your chosen format:
    - **EPUB**: Kindle-optimized ebook with proper metadata, TOC, and styling
-   - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Kokoro-82M, and encoded to M4B or MP3
+   - **Audiobook**: Content sections are split into TTS-friendly chunks, phonemized with Misaki (espeak-ng fallback), synthesized with Kokoro-82M, and encoded to M4B or MP3
