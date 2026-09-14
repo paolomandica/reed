@@ -6,7 +6,7 @@ saved articles into EPUB, Markdown, and audiobooks (Kokoro-82M TTS).
 ## Project layout
 
 - `src/reed/` — import package (`reed`); the console command is also `reed`
-- `src/reed/cli.py` — Click CLI: `epub`, `audiobook`, `markdown`, `demo`,
+- `src/reed/cli.py` — Click CLI: `epub`, `audiobook`, `demo`,
   `web`, `doctor`
 - `src/reed/web.py` + `src/reed/static/` — Flask web UI
 - `src/reed/outputs/` — EPUB / Markdown / audiobook (M4B default, MP3 opt-in)

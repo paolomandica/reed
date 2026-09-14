@@ -11,7 +11,7 @@ import click
 
 from .inputs import extract_from_markdown
 from .models import Article
-from .outputs import generate_epub, generate_markdown
+from .outputs import generate_epub
 from .sample import sample_article_path as _sample_article_path
 
 logger = logging.getLogger(__name__)
@@ -67,8 +67,7 @@ def main(ctx: click.Context) -> None:
     Commands:
       epub        Generate a Kindle-compatible EPUB
       audiobook   Generate an MP3 or M4B audiobook using Kokoro-82M TTS
-      markdown    Generate a Markdown file
-      demo        Generate all three formats from a bundled sample
+      demo        Generate EPUB and audiobook from a bundled sample
       web         Start a browser-based web interface
       doctor      Check audiobook dependencies
 
@@ -76,7 +75,6 @@ def main(ctx: click.Context) -> None:
     Examples:
       reed demo
       reed epub -i article.md
-      reed markdown -i article.md
       reed audiobook -i article.md
       reed audiobook -i article.md --voice af_bella
       reed audiobook -o out.m4b -i article.md
@@ -459,67 +457,6 @@ def web_cmd(host: str, port: int, open_browser: bool, debug: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# markdown subcommand
-# ---------------------------------------------------------------------------
-
-
-@main.command("markdown")
-@click.option("-o", "--output", type=click.Path(path_type=Path), help="Output Markdown path")
-@click.option(
-    "-i",
-    "--input",
-    "input_file",
-    type=click.Path(exists=True, path_type=Path),
-    help="Markdown (.md) or plain text (.txt) file — Markdown recommended",
-)
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
-def markdown_cmd(
-    output: Path | None,
-    input_file: Path | None,
-    verbose: bool,
-) -> None:
-    """Generate a Markdown file from an article.
-
-    \b
-    Use a local Markdown or plain-text file:
-        reed markdown -i article.md
-        reed markdown -i article.txt
-    """
-    _setup_logging(verbose)
-
-    try:
-        article = _resolve_article(input_file=input_file)
-
-        logger.info(
-            "Article: title=%r, author=%r, sections=%d",
-            article.metadata.title,
-            article.metadata.author,
-            len(article.sections),
-        )
-
-        if output:
-            output_path = output
-        else:
-            articles_dir = Path("articles")
-            articles_dir.mkdir(exist_ok=True)
-            output_path = articles_dir / article.output_filename().replace(".epub", ".md")
-        if output_path.suffix != ".md":
-            output_path = output_path.with_suffix(".md")
-
-        generate_markdown(article, output_path)
-        click.echo(f"✓ Markdown generated: {output_path}")
-
-    except ValueError as e:
-        click.echo(f"Error: {e}", err=True)
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Unexpected error: {e}\nRun with -v for the full traceback.", err=True)
-        if verbose:
-            raise
-        sys.exit(1)
-
-
-# ---------------------------------------------------------------------------
 # demo subcommand
 # ---------------------------------------------------------------------------
 
@@ -565,7 +502,7 @@ def markdown_cmd(
     "--no-audiobook",
     "no_audiobook",
     is_flag=True,
-    help="Generate only EPUB and Markdown (skips Kokoro and ffmpeg).",
+    help="Generate only the EPUB (skips Kokoro and ffmpeg).",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 def demo_cmd(
@@ -577,10 +514,10 @@ def demo_cmd(
     no_audiobook: bool,
     verbose: bool,
 ) -> None:
-    """Generate EPUB, Markdown, and an MP3 or M4B audiobook from a sample.
+    """Generate an EPUB and an MP3 or M4B audiobook from a sample.
 
     \b
-    A zero-setup way to try every reed output format:
+    A zero-setup way to try reed:
         reed demo
         reed demo --no-audiobook
         reed demo --voice af_bella --speed 0.85
@@ -604,10 +541,6 @@ def demo_cmd(
         epub_path = output_dir / article.output_filename()
         generate_epub(article, epub_path)
         click.echo(f"✓ EPUB: {epub_path}")
-
-        md_path = epub_path.with_suffix(".md")
-        generate_markdown(article, md_path)
-        click.echo(f"✓ Markdown: {md_path}")
 
         suffix = ".m4b" if output_format == "m4b" else ".mp3"
         mp3_path = epub_path.with_suffix(suffix)

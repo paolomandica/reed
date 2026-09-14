@@ -1,14 +1,15 @@
 """Flask web server for reed.
 
-Provides a browser-based interface to convert articles to EPUBs,
-audiobooks, and Markdown files.  Run with ``reed web``.
+Provides a browser-based interface to convert articles to EPUBs and
+audiobooks.  Run with ``reed web``.
 
 Routes:
     GET  /                   Serve the static frontend
     GET  /api/models         List available TTS models
     GET  /api/preview        Short cached voice sample (voice, speed)
+    GET  /api/prompts        Return the LLM prompt templates (fluent, verbatim)
     POST /api/generate       Start generation, return task ID
-    POST /api/demo           Start all three formats from the bundled sample
+    POST /api/demo           Start both formats from the bundled sample
     GET  /api/task/<id>      Poll task status / progress
     GET  /api/download/<id>  Download completed file
     POST /api/task/<id>/stop Cancel a running task
@@ -28,7 +29,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 
 from .inputs import extract_from_markdown
 from .models import Article
-from .outputs import generate_audiobook, generate_epub, generate_markdown
+from .outputs import generate_audiobook, generate_epub
 
 logger = logging.getLogger(__name__)
 
@@ -158,18 +159,6 @@ def _run_generation(
             download_name = article.output_filename()
             mime = "application/epub+zip"
 
-        elif fmt == "markdown":
-            with tempfile.NamedTemporaryFile(
-                suffix=".md", delete=False, mode="w", encoding="utf-8"
-            ) as tmp:
-                output_tmp = Path(tmp.name)
-
-            generate_markdown(article, output_tmp)
-
-            output_bytes = BytesIO(output_tmp.read_bytes())
-            download_name = article.output_filename().replace(".epub", ".md")
-            mime = "text/markdown"
-
         else:  # audiobook
             with tempfile.NamedTemporaryFile(
                 suffix=".m4b", delete=False
@@ -257,9 +246,9 @@ def _handle_generate() -> tuple:
 
     # -- validate format ------------------------------------------------------
     fmt = (request.form.get("format") or "").strip().lower()
-    if fmt not in ("epub", "audiobook", "markdown"):
+    if fmt not in ("epub", "audiobook"):
         return (
-            jsonify({"error": "format must be 'epub', 'audiobook', or 'markdown'"}),
+            jsonify({"error": "format must be 'epub' or 'audiobook'"}),
             400,
         )
 
@@ -487,12 +476,45 @@ def create_app(debug: bool = False) -> Flask:
         """Start generation and return a task ID for polling."""
         return _handle_generate()
 
+    @app.route("/api/prompts")
+    def get_prompts():
+        """Return the LLM prompt templates for the web UI.
+
+        The frontend uses these to let the user copy a tailored prompt, append
+        their article URL, and paste it into an AI chat to get clean Markdown.
+
+        Returns ``{"fluent": "...", "verbatim": "..."}`` with the raw prompt
+        text for each style.
+        """
+        try:
+            from importlib.resources import files
+
+            fluent = (
+                files("reed")
+                .joinpath("examples", "llm-article-prompt.md")
+                .read_text(encoding="utf-8")
+            )
+            verbatim = (
+                files("reed")
+                .joinpath("examples", "llm-article-prompt-verbatim.md")
+                .read_text(encoding="utf-8")
+            )
+        except (ModuleNotFoundError, OSError, TypeError, FileNotFoundError):
+            # Source checkout fallback — read from the repo examples/ dir
+            examples_dir = _HERE.parent.parent / "examples"
+            fluent = (examples_dir / "llm-article-prompt.md").read_text(encoding="utf-8")
+            verbatim = (
+                examples_dir / "llm-article-prompt-verbatim.md"
+            ).read_text(encoding="utf-8")
+
+        return jsonify({"fluent": fluent, "verbatim": verbatim})
+
     @app.route("/api/demo", methods=["POST"])
     def demo():
-        """Start all three output formats from the bundled sample article.
+        """Start both output formats from the bundled sample article.
 
         Returns ``{"tasks": [{"format": ..., "task_id": ...}, ...]}`` with one
-        task per format (EPUB, Markdown, audiobook), pollable via
+        task per format (EPUB, audiobook), pollable via
         ``/api/task/<id>`` and downloadable once done.
         """
         _sweep_expired_tasks()
@@ -523,7 +545,7 @@ def create_app(debug: bool = False) -> Flask:
 
         tasks: list[dict[str, str]] = []
         try:
-            for fmt in ("epub", "markdown", "audiobook"):
+            for fmt in ("epub", "audiobook"):
                 task_id = str(uuid.uuid4())
                 cancel_event = threading.Event()
                 with _task_lock:

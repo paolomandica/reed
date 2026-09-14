@@ -25,6 +25,48 @@
     </p>
   </header>
 
+  <!-- LLM Prompt Guide card -->
+  <div class="card prompt-guide-card animate-in" style="animation-delay: 0.04s">
+    <div class="card-head">
+      <span class="step-badge" aria-hidden="true">📝</span>
+      <h2>Get a tailored prompt for your article</h2>
+    </div>
+    <p class="hint" style="margin-bottom: 1rem;">
+      Have an article link but no Markdown? Generate a prompt to feed your
+      favorite AI chat (Gemini, ChatGPT, Claude, etc.) and get clean Markdown
+      back — ready to paste below.
+    </p>
+
+    <label for="prompt-url-input">Article URL</label>
+    <input type="url" id="prompt-url-input" class="prompt-url-input"
+           placeholder="https://example.com/your-article">
+    <p class="field-error" id="prompt-url-error" role="alert"></p>
+
+    <label style="margin-top: 0.85rem;">Prompt style</label>
+    <div class="prompt-style-cards" id="prompt-style-cards" role="radiogroup" aria-label="Prompt style">
+      <div class="prompt-style-card selected" data-style="verbatim" role="radio" aria-checked="true" tabindex="0">
+        <span class="format-icon" aria-hidden="true">📖</span>
+        <div class="format-name">Verbatim</div>
+        <div class="format-desc">Better for EPUB</div>
+      </div>
+      <div class="prompt-style-card" data-style="fluent" role="radio" aria-checked="false" tabindex="0">
+        <span class="format-icon" aria-hidden="true">🎧</span>
+        <div class="format-name">Fluent</div>
+        <div class="format-desc">Better for audiobook</div>
+      </div>
+    </div>
+    <input type="hidden" id="prompt-style-input" value="verbatim">
+
+    <button class="btn-copy-prompt" id="btn-copy-prompt" type="button">📋 Copy prompt</button>
+    <span class="copy-feedback" id="copy-feedback"></span>
+
+    <ol class="prompt-steps">
+      <li>Open your AI chat of choice (Gemini, ChatGPT, Claude, etc.)</li>
+      <li>Click "Copy prompt" above, paste it into the chat, and send</li>
+      <li>Copy the Markdown the AI generates and paste it into the text box below</li>
+    </ol>
+  </div>
+
   <!-- Source card -->
   <div class="card animate-in" style="animation-delay: 0.08s">
     <div class="card-head">
@@ -90,11 +132,6 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
         <div class="format-name">Audiobook</div>
         <div class="format-desc">Listen anywhere</div>
       </div>
-      <div class="format-card" data-format="markdown" role="radio" aria-checked="false" tabindex="0">
-        <span class="format-icon" aria-hidden="true">📝</span>
-        <div class="format-name">Markdown</div>
-        <div class="format-desc">Plain text file</div>
-      </div>
     </div>
     <input type="hidden" id="format-input" value="epub">
 
@@ -139,66 +176,8 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
     </div>
   </div>
 
-  <!-- Demo card -->
-  <div class="card demo-card animate-in" style="animation-delay: 0.20s">
-    <div class="card-head">
-      <span class="step-badge" aria-hidden="true">✨</span>
-      <h2>Or try it instantly</h2>
-    </div>
-    <p class="hint">
-      No file needed — generate all three formats from a built-in sample article.
-    </p>
-    <button class="btn-demo" id="btn-demo">✨ Generate the demo</button>
-
-    <div id="demo-progress" class="demo-progress hidden">
-      <div class="demo-task" data-demo-task="epub">
-        <span class="demo-task-icon" aria-hidden="true">📖</span>
-        <div class="demo-task-body">
-          <div class="demo-task-name">EPUB</div>
-          <div class="progress-wrap">
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill" data-demo-fill="epub"></div>
-            </div>
-            <span class="progress-pct" data-demo-pct="epub">0%</span>
-          </div>
-        </div>
-        <a class="btn-download demo-download hidden" data-demo-download="epub" href="#">Download</a>
-      </div>
-
-      <div class="demo-task" data-demo-task="markdown">
-        <span class="demo-task-icon" aria-hidden="true">📝</span>
-        <div class="demo-task-body">
-          <div class="demo-task-name">Markdown</div>
-          <div class="progress-wrap">
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill" data-demo-fill="markdown"></div>
-            </div>
-            <span class="progress-pct" data-demo-pct="markdown">0%</span>
-          </div>
-        </div>
-        <a class="btn-download demo-download hidden" data-demo-download="markdown" href="#">Download</a>
-      </div>
-
-      <div class="demo-task" data-demo-task="audiobook">
-        <span class="demo-task-icon" aria-hidden="true">🎧</span>
-        <div class="demo-task-body">
-          <div class="demo-task-name">Audiobook</div>
-          <div class="progress-wrap">
-            <div class="progress-bar-track">
-              <div class="progress-bar-fill" data-demo-fill="audiobook"></div>
-            </div>
-            <span class="progress-pct" data-demo-pct="audiobook">0%</span>
-          </div>
-        </div>
-        <a class="btn-download demo-download hidden" data-demo-download="audiobook" href="#">Download</a>
-      </div>
-    </div>
-
-    <p class="field-error hidden" id="demo-error" role="alert"></p>
-  </div>
-
   <!-- Actions -->
-  <div class="animate-in" style="animation-delay: 0.24s">
+  <div class="animate-in" style="animation-delay: 0.20s">
     <button class="btn-generate" id="btn-generate">✨ Create my file</button>
     <button class="btn-stop hidden" id="btn-stop">Cancel generation</button>
   </div>
@@ -236,6 +215,50 @@ You can paste Markdown, or just plain text — we'll figure it out. The first he
     <p class="error-heading">That didn't work</p>
     <div class="error-detail" id="error-message"></div>
     <button class="btn-reset" id="btn-retry">Try again</button>
+  </div>
+
+  <!-- Demo card -->
+  <div class="card demo-card animate-in" style="animation-delay: 0.24s">
+    <div class="card-head">
+      <span class="step-badge" aria-hidden="true">✨</span>
+      <h2>Or try it instantly</h2>
+    </div>
+    <p class="hint">
+      No file needed — generate both formats from a built-in sample article.
+    </p>
+    <button class="btn-demo" id="btn-demo">✨ Generate the demo</button>
+
+    <div id="demo-progress" class="demo-progress hidden">
+      <div class="demo-task" data-demo-task="epub">
+        <span class="demo-task-icon" aria-hidden="true">📖</span>
+        <div class="demo-task-body">
+          <div class="demo-task-name">EPUB</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" data-demo-fill="epub"></div>
+            </div>
+            <span class="progress-pct" data-demo-pct="epub">0%</span>
+          </div>
+        </div>
+        <a class="btn-download demo-download hidden" data-demo-download="epub" href="#">Download</a>
+      </div>
+
+      <div class="demo-task" data-demo-task="audiobook">
+        <span class="demo-task-icon" aria-hidden="true">🎧</span>
+        <div class="demo-task-body">
+          <div class="demo-task-name">Audiobook</div>
+          <div class="progress-wrap">
+            <div class="progress-bar-track">
+              <div class="progress-bar-fill" data-demo-fill="audiobook"></div>
+            </div>
+            <span class="progress-pct" data-demo-pct="audiobook">0%</span>
+          </div>
+        </div>
+        <a class="btn-download demo-download hidden" data-demo-download="audiobook" href="#">Download</a>
+      </div>
+    </div>
+
+    <p class="field-error hidden" id="demo-error" role="alert"></p>
   </div>
 
   <footer>

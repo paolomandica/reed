@@ -68,6 +68,8 @@ packages = ["src/reed"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "examples/reed-demo.md" = "reed/examples/reed-demo.md"
+"examples/llm-article-prompt.md" = "reed/examples/llm-article-prompt.md"
+"examples/llm-article-prompt-verbatim.md" = "reed/examples/llm-article-prompt-verbatim.md"
 
 [tool.ruff]
 line-length = 100

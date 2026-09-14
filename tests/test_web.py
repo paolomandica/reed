@@ -19,7 +19,7 @@ def _fake_run_generation(
     """Stand-in for web._run_generation that completes tasks instantly."""
     if release_slot:
         web._audiobook_slot.release()
-    suffix = "epub" if fmt == "epub" else "md" if fmt == "markdown" else "mp3"
+    suffix = "epub" if fmt == "epub" else "mp3"
     with web._task_lock:
         task = web._task_store.get(task_id)
         if task is None:
@@ -159,14 +159,14 @@ class WebApiTests(unittest.TestCase):
         resp = self.client.get(f"/api/task/{task_id}")
         self.assertEqual(resp.status_code, 404)
 
-    def test_demo_creates_all_three_formats(self) -> None:
+    def test_demo_creates_both_formats(self) -> None:
         with mock.patch.object(web, "_run_generation", side_effect=_fake_run_generation):
             resp = self.client.post("/api/demo")
 
         self.assertEqual(resp.status_code, 202)
         tasks = resp.get_json()["tasks"]
         self.assertEqual(
-            [task["format"] for task in tasks], ["epub", "markdown", "audiobook"]
+            [task["format"] for task in tasks], ["epub", "audiobook"]
         )
 
         for task in tasks:

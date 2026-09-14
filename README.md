@@ -9,7 +9,7 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/reed-cli.svg)](https://pypi.org/project/reed-cli/)
 [![CI](https://img.shields.io/github/actions/workflow/status/paolomandica/reed/ci.yml.svg)](https://github.com/paolomandica/reed/actions)
 
-Convert articles to EPUBs, Markdown, and audiobooks.
+Convert articles to EPUBs and audiobooks.
 
 Paste your article text or upload a Markdown file — reed handles the rest.
 
@@ -86,7 +86,7 @@ reed web
 
 This starts a local server and opens <http://127.0.0.1:8080>. Paste your
 article text directly (default), or switch to uploading a Markdown (`.md`) or
-plain text (`.txt`) file. Choose EPUB, Markdown, or audiobook and download the
+plain text (`.txt`) file. Choose EPUB or audiobook and download the
 result.
 
 Markdown is recommended — headings become chapters, and metadata (author, date)
@@ -95,7 +95,7 @@ is detected automatically. Plain text works too, but with less structure.
 The first audiobook or voice preview downloads the Kokoro model from Hugging Face and caches it locally; no API key is needed.
 
 Want to see it work before touching your own files? Click **✨ Generate the
-demo** to produce all three formats from a bundled sample article — no file
+demo** to produce both formats from a bundled sample article — no file
 needed.
 
 ```text
@@ -130,20 +130,19 @@ Usage: reed [OPTIONS] COMMAND [ARGS]...
 Commands:
   epub        Generate a Kindle-compatible EPUB
   audiobook   Generate an M4B or MP3 audiobook using Kokoro-82M TTS
-  markdown    Generate a Markdown file
-  demo        Try all three formats with a bundled sample article
+  demo        Generate EPUB and audiobook from a bundled sample article
   web         Start a browser-based web interface
 ```
 
 ### Demo
 
-Try every output format in one command with a bundled sample article:
+Try reed in one command with a bundled sample article:
 
 ```bash
 reed demo
 ```
 
-This generates `reed-demo/<article-title>.epub`, `.md`, and a chaptered `.m4b`
+This generates `reed-demo/<article-title>.epub` and a chaptered `.m4b`
 audiobook. Add `--no-audiobook` to skip the audiobook (and its first-run
 Kokoro model download):
 
@@ -172,23 +171,6 @@ Options:
   -v, --verbose          Show detailed progress
   --help                 Show this message
 ```
-
-### Markdown generation
-
-Generate a Markdown file from an input file:
-
-```bash
-# From a Markdown file
-reed markdown -i article.md
-
-# From a plain text file
-reed markdown -i article.txt
-
-# Custom output path
-reed markdown -i article.md -o output.md
-```
-
-Default output path: `articles/<title-slug>.md`
 
 ### Audiobook generation
 
@@ -325,5 +307,4 @@ section with no metadata detection.
 2. **Extract**: reed parses the input, detecting metadata (title, author, date) and structuring content into sections
 3. **Convert**: the extracted content is converted to your chosen format:
    - **EPUB**: Kindle-optimized ebook with proper metadata, TOC, and styling
-   - **Markdown**: structured Markdown with a metadata header
    - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Kokoro-82M, and encoded to M4B or MP3

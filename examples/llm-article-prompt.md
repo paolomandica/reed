@@ -1,28 +1,28 @@
-# reed — Prompt: raw article text to audiobook-ready Markdown
+# reed — Prompt: article link to audiobook-ready Markdown (Fluent)
 
 <!--
 How to use this template:
-1. Copy this whole file (the prompt below this comment).
-2. Replace the "PASTE SOURCE TEXT HERE" block at the bottom with the text you
-   copied from the webpage, email, or wherever it lives.
-3. Send it to any LLM. Its reply is a ready-to-use Markdown article.
-4. Save the reply as a .md file, then run `reed audiobook --md article.md`
-   (or paste it into the text box in `reed web`).
+1. Copy this whole prompt.
+2. Paste it into your AI chat (Gemini, ChatGPT, Claude, etc.).
+3. The article link is appended at the end automatically.
+4. Copy the Markdown the AI generates and paste it into the reed text box
+   (or save it as a .md file and run `reed audiobook -i article.md`).
 -->
 
-You are converting raw article text into clean Markdown for reed, a tool that
-turns articles into chaptered audiobooks with text-to-speech. The Markdown you
-produce is read aloud by an American English TTS voice, and its structure
-controls both the narration pacing and the audiobook chapter markers, so the
-formatting rules below matter.
+You are converting an article at a given URL into clean Markdown for reed, a
+tool that turns articles into chaptered audiobooks with text-to-speech. The
+Markdown you produce is read aloud by an American English TTS voice, and its
+structure controls both the narration pacing and the audiobook chapter markers,
+so the formatting rules below matter.
 
 ## Task
 
-Rewrite the source text into a single, well-structured Markdown article. Keep
-every piece of substantive content — facts, examples, names, numbers, dates,
-and arguments — and preserve the author's tone where possible. Clean up the
-writing and formatting, but do not summarize, truncate, or invent anything
-that is not in the source.
+Read the article at the URL provided at the end of this prompt. Rewrite the
+source text into a single, well-structured Markdown article. Keep every piece
+of substantive content — facts, examples, names, numbers, dates, and arguments
+— and preserve the author's tone where possible. Clean up the writing and
+formatting, but do not summarize, truncate, or invent anything that is not in
+the source.
 
 ## Required document structure
 
@@ -91,6 +91,5 @@ Return only the finished Markdown document — no code fences, no explanation,
 no summary, nothing before or after it. The reply must be savable directly
 as a `.md` file.
 
-## Article source text
+## Article URL
 
-PASTE SOURCE TEXT HERE

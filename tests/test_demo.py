@@ -37,7 +37,7 @@ class SampleArticleTests(unittest.TestCase):
 
 
 class DemoCommandTests(unittest.TestCase):
-    def test_demo_no_audiobook_generates_epub_and_markdown(self) -> None:
+    def test_demo_no_audiobook_generates_epub_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             out_dir = Path(directory) / "out"
             result = CliRunner().invoke(
@@ -48,14 +48,8 @@ class DemoCommandTests(unittest.TestCase):
             self.assertIn("Audiobook: skipped", result.output)
 
             epub = out_dir / "how-reed-turns-a-saved-article-into-an-audiobook.epub"
-            md = epub.with_suffix(".md")
             self.assertTrue(epub.is_file())
-            self.assertTrue(md.is_file())
             self.assertTrue(epub.read_bytes().startswith(b"PK"))
-            self.assertIn(
-                "How reed turns a saved article into an audiobook",
-                md.read_text(encoding="utf-8"),
-            )
             self.assertFalse(epub.with_suffix(".m4b").exists())
 
     def test_demo_rejects_invalid_speed(self) -> None:

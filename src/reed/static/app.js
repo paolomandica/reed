@@ -6,6 +6,7 @@
 let state = "idle";
 let currentTaskId = null;
 let debugMode = false;
+let promptTemplates = { fluent: "", verbatim: "" };
 
 // ---- DOM refs -------------------------------------------------------------
 const sourceToggle     = document.getElementById("source-toggle");
@@ -423,7 +424,6 @@ async function doGenerate() {
   const statusMsgs = {
     epub:      { text: "Creating your EPUB…", icon: "📖" },
     audiobook: { text: "Narrating your audiobook…", icon: "🎧" },
-    markdown:  { text: "Creating your Markdown…", icon: "📝" },
   };
   const msg = statusMsgs[fmt] || statusMsgs.epub;
   showStatus(msg.text, msg.icon);
@@ -510,7 +510,7 @@ async function doGenerate() {
         window.location.href = task.download_url;
         state = "done";
         currentTaskId = null;
-        const fmtNames = { epub: "EPUB", audiobook: "Audiobook", markdown: "Markdown" };
+        const fmtNames = { epub: "EPUB", audiobook: "Audiobook" };
         const fmtName = fmtNames[fmt] || "File";
         showResult(fmtName + " — your download should start automatically");
         return;
@@ -585,7 +585,7 @@ async function doDemo() {
     const taskIds = {};
     tasks.forEach(t => { taskIds[t.format] = t.task_id; });
 
-    const formats = ["epub", "markdown", "audiobook"];
+    const formats = ["epub", "audiobook"];
     const finished = {};
     const maxPolls = 900; // 15 minutes
     for (let i = 0; i < maxPolls; i++) {
@@ -682,6 +682,93 @@ btnStop.addEventListener("click", async () => {
 
 document.getElementById("btn-convert-another").addEventListener("click", resetForm);
 document.getElementById("btn-retry").addEventListener("click", resetForm);
+
+// ---- LLM Prompt Guide ----------------------------------------------------
+const promptStyleCards = document.getElementById("prompt-style-cards");
+const promptStyleInput = document.getElementById("prompt-style-input");
+const promptUrlInput   = document.getElementById("prompt-url-input");
+const promptUrlError   = document.getElementById("prompt-url-error");
+const btnCopyPrompt    = document.getElementById("btn-copy-prompt");
+const copyFeedback     = document.getElementById("copy-feedback");
+
+// Fetch prompt templates on page load
+async function fetchPrompts() {
+  try {
+    const res = await fetch("/api/prompts");
+    if (!res.ok) return;
+    const data = await res.json();
+    promptTemplates.fluent = data.fluent || "";
+    promptTemplates.verbatim = data.verbatim || "";
+  } catch (_) {}
+}
+fetchPrompts();
+
+// Prompt style card selection
+promptStyleCards.addEventListener("click", (e) => {
+  const card = e.target.closest(".prompt-style-card");
+  if (!card || card.classList.contains("selected")) return;
+
+  promptStyleCards.querySelectorAll(".prompt-style-card").forEach(c => {
+    c.classList.remove("selected");
+    c.setAttribute("aria-checked", "false");
+  });
+  card.classList.add("selected");
+  card.setAttribute("aria-checked", "true");
+  promptStyleInput.value = card.dataset.style;
+});
+enableCardKeyboard(promptStyleCards, ".prompt-style-card");
+
+// Copy prompt button
+btnCopyPrompt.addEventListener("click", async () => {
+  promptUrlError.classList.remove("visible");
+
+  const url = promptUrlInput.value.trim();
+  if (!url) {
+    promptUrlError.textContent = "Please paste an article URL first.";
+    promptUrlError.classList.add("visible");
+    return;
+  }
+
+  const style = promptStyleInput.value;
+  const template = promptTemplates[style] || "";
+  if (!template) {
+    promptUrlError.textContent = "Prompt not loaded yet. Please try again in a moment.";
+    promptUrlError.classList.add("visible");
+    return;
+  }
+
+  // Append the article URL at the end of the prompt
+  const fullPrompt = template + url;
+
+  try {
+    await navigator.clipboard.writeText(fullPrompt);
+    copyFeedback.textContent = "✓ Copied!";
+    copyFeedback.classList.add("visible");
+    setTimeout(() => {
+      copyFeedback.classList.remove("visible");
+    }, 2000);
+  } catch (_) {
+    // Fallback for browsers without clipboard API
+    const textarea = document.createElement("textarea");
+    textarea.value = fullPrompt;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+      copyFeedback.textContent = "✓ Copied!";
+      copyFeedback.classList.add("visible");
+      setTimeout(() => {
+        copyFeedback.classList.remove("visible");
+      }, 2000);
+    } catch (_) {
+      promptUrlError.textContent = "Couldn't copy to clipboard. Please copy manually.";
+      promptUrlError.classList.add("visible");
+    }
+    document.body.removeChild(textarea);
+  }
+});
 
 // ---- Init -----------------------------------------------------------------
 // Audiobook options hidden by default (EPUB is default selection)
