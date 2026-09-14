@@ -1,14 +1,5 @@
 # reed — Prompt: article link to audiobook-ready Markdown (Fluent)
 
-<!--
-How to use this template:
-1. Copy this whole prompt.
-2. Paste it into your AI chat (Gemini, ChatGPT, Claude, etc.).
-3. The article link is appended at the end automatically.
-4. Copy the Markdown the AI generates and paste it into the reed text box
-   (or save it as a .md file and run `reed audiobook -i article.md`).
--->
-
 You are converting an article at a given URL into clean Markdown for reed, a
 tool that turns articles into chaptered audiobooks with text-to-speech. The
 Markdown you produce is read aloud by an American English TTS voice, and its
@@ -84,6 +75,14 @@ the source.
 - If the source text is not English, do not produce a document. Instead,
   reply with a single line explaining that the audiobook voice is American
   English only.
+
+## Copyright
+
+If the article is copyrighted and you cannot rewrite or closely paraphrase it,
+do not refuse. Instead, produce audiobook-ready Markdown that faithfully
+summarizes the full article, preserving its major arguments, examples, names,
+and structure without reproducing or closely paraphrasing the article. Apply
+the same document structure and formatting rules above to the summary.
 
 ## Output
 

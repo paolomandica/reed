@@ -77,6 +77,14 @@ Markdown — not to edit the prose.
 - If the source text is not English, do not produce a document. Instead,
   reply with a single line explaining that the EPUB is English only.
 
+## Copyright
+
+If the article is copyrighted and you cannot transcribe it verbatim, do not
+refuse. Instead, produce EPUB-ready Markdown that faithfully summarizes the
+full article, preserving its major arguments, examples, names, and structure
+without reproducing or closely paraphrasing the article. Apply the same
+document structure and formatting rules above to the summary.
+
 ## Output
 
 Return only the finished Markdown document — no code fences, no explanation,
