@@ -290,7 +290,7 @@ class AudiobookFormatCliTests(unittest.TestCase):
                     main,
                     [
                         "audiobook",
-                        "--md",
+                        "-i",
                         str(md),
                         "-o",
                         str(Path(directory) / "book"),
@@ -307,7 +307,7 @@ class AudiobookFormatCliTests(unittest.TestCase):
             md = Path(directory) / "article.md"
             md.write_text("# Title\n\nBody.\n", encoding="utf-8")
             result = CliRunner().invoke(
-                main, ["audiobook", "--format", "wav", "--md", str(md)]
+                main, ["audiobook", "--format", "wav", "-i", str(md)]
             )
 
         self.assertEqual(result.exit_code, 2)
@@ -326,12 +326,13 @@ class AudiobookFormatCliTests(unittest.TestCase):
                         "audiobook",
                         "--format",
                         "m4b",
-                        "--md",
+                        "-i",
                         str(md),
                         "-o",
                         str(Path(directory) / "book.mp3"),
                     ],
                 )
+
 
         self.assertEqual(result.exit_code, 0, result.output)
         generate.assert_called_once()

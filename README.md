@@ -9,10 +9,9 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/reed-cli.svg)](https://pypi.org/project/reed-cli/)
 [![CI](https://img.shields.io/github/actions/workflow/status/paolomandica/reed/ci.yml.svg)](https://github.com/paolomandica/reed/actions)
 
-Convert saved article pages to EPUBs, Markdown, and audiobooks.
+Convert articles to EPUBs, Markdown, and audiobooks.
 
-Works with saved HTML from Substack, blogs, news sites, and any
-long-form article page.
+Paste your article text or upload a Markdown file — reed handles the rest.
 
 ## Installation
 
@@ -85,7 +84,13 @@ The browser interface is the recommended way to use reed:
 reed web
 ```
 
-This starts a local server and opens <http://127.0.0.1:8080>. Upload a saved HTML or Markdown article, or paste text directly; choose EPUB, Markdown, or audiobook and download the result.
+This starts a local server and opens <http://127.0.0.1:8080>. Paste your
+article text directly (default), or switch to uploading a Markdown (`.md`) or
+plain text (`.txt`) file. Choose EPUB, Markdown, or audiobook and download the
+result.
+
+Markdown is recommended — headings become chapters, and metadata (author, date)
+is detected automatically. Plain text works too, but with less structure.
 
 The first audiobook or voice preview downloads the Kokoro model from Hugging Face and caches it locally; no API key is needed.
 
@@ -148,15 +153,11 @@ reed demo --no-audiobook
 
 ### EPUB generation
 
-Save any article page from your browser (File → Save As → Webpage, HTML Only), then:
+Provide a Markdown (`.md`) or plain text (`.txt`) file:
 
 ```bash
-reed epub --html article.html
+reed epub -i article.md
 ```
-
-This works with Substack, blogs, news sites, and most long-form
-article pages. The parser automatically detects the page structure and
-extracts the title, author, date, and body content.
 
 The EPUB is saved to `epubs/article-title.epub` ready to send to your Kindle.
 
@@ -166,26 +167,25 @@ The EPUB is saved to `epubs/article-title.epub` ready to send to your Kindle.
 Usage: reed epub [OPTIONS]
 
 Options:
-  -o, --output PATH    Output EPUB path (default: epubs/<title-slug>.epub)
-  --html PATH          Use a local HTML file
-  --md PATH            Use a local Markdown file
-  --verbose, -v        Show detailed progress
-  --help               Show this message
+  -o, --output PATH     Output EPUB path (default: epubs/<title-slug>.epub)
+  -i, --input PATH       Markdown (.md) or plain text (.txt) file
+  -v, --verbose          Show detailed progress
+  --help                 Show this message
 ```
 
 ### Markdown generation
 
-Generate a Markdown file from a saved article:
+Generate a Markdown file from an input file:
 
 ```bash
-# From a saved HTML file (Substack, blogs, or any article page)
-reed markdown --html article.html
+# From a Markdown file
+reed markdown -i article.md
 
-# From a previously generated Markdown file (round-trip)
-reed markdown --md article.md
+# From a plain text file
+reed markdown -i article.txt
 
 # Custom output path
-reed markdown --html article.html -o article.md
+reed markdown -i article.md -o output.md
 ```
 
 Default output path: `articles/<title-slug>.md`
@@ -195,8 +195,6 @@ Default output path: `articles/<title-slug>.md`
 Generate a chaptered M4B audiobook (or flat MP3) from an article using **Kokoro-82M**
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
 with 20 American English voices, Apache-2.0 licensed.
-
-Works with Substack, blogs, news sites, and any saved HTML article page.
 
 On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
 (MPS) when available and falls back to CPU otherwise.
@@ -210,26 +208,23 @@ On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
 
 ```bash
 # Default: chaptered M4B audiobook (voice af_heart)
-reed audiobook --html article.html
+reed audiobook -i article.md
 
 # Flat MP3 instead
-reed audiobook --html article.html --format mp3
+reed audiobook -i article.md --format mp3
 
 # Pick a different voice
-reed audiobook --html article.html --voice af_bella
+reed audiobook -i article.md --voice af_bella
 
 # List all available voices
 reed audiobook --list-voices
 
 # Adjust speed
-reed audiobook --html article.html --speed 0.85   # 15% slower
-reed audiobook --html article.html --speed 1.25   # faster
+reed audiobook -i article.md --speed 0.85   # 15% slower
+reed audiobook -i article.md --speed 1.25   # faster
 
 # Custom output path
-reed audiobook -o my-article.m4b --html article.html
-
-# From a Markdown file
-reed audiobook --md article.md --voice am_puck
+reed audiobook -o my-article.m4b -i article.md
 ```
 
 #### Chaptered M4B (Apple Books / VLC)
@@ -238,7 +233,7 @@ M4B is the default audiobook format. Chapters are derived from the article's
 section headings, so players show and jump between sections:
 
 ```bash
-reed audiobook --html article.html
+reed audiobook -i article.md
 ```
 
 Prefer a flat MP3 for maximum compatibility? Use `--format mp3` — the same
@@ -263,9 +258,8 @@ Usage: reed audiobook [OPTIONS]
 
 Options:
   -o, --output PATH        Output audio file path (default:
-                           audiobooks/<title-slug>.mp3)
-  --html PATH              Use a local HTML file
-  --md PATH                Use a local Markdown file
+                           audiobooks/<title-slug>.m4b)
+  -i, --input PATH         Markdown (.md) or plain text (.txt) file
   --voice TEXT             Kokoro voice  [default: af_heart]
   --list-voices            List available Kokoro voices and exit.
   --speed FLOAT            Playback speed (0.5–2.0)  [default: 1.0]
@@ -298,40 +292,38 @@ Generated EPUBs include:
 
 Send the EPUB to your Kindle using the Send-to-Kindle app or email.
 
-## Supported Sources
+## Markdown Format
 
-### Substack and other article pages
+reed works best with Markdown input. Here's a quick template:
 
-Save the page as HTML from your browser (File → Save As → Webpage, HTML Only),
-then use `--html`:
+```markdown
+# Article Title
 
-```bash
-reed epub --html young-adults-are-poor.html
-reed markdown --html young-adults-are-poor.html
-reed audiobook --html young-adults-are-poor.html
+*By Author Name — January 15, 2024*
+
+---
+
+## First Section
+
+Your article text goes here.
+
+## Second Section
+
+More text here.
 ```
 
-The HTML parser uses heuristics to find the article body, title, author, and
-date — it works with Substack, personal blogs, and most CMS-generated article
-pages without site-specific selectors.
+The first `#` heading becomes the title. The `*By ...*` line is parsed for
+the author and date. Headings (`##`, `###`) become chapters in audiobooks and
+table-of-contents entries in EPUBs.
 
-### Round-tripping
-
-reed can read its own Markdown output back as input — useful for editing
-content before regenerating:
-
-```bash
-reed markdown --html article.html -o article.md
-# ... edit article.md ...
-reed epub --md article.md
-reed audiobook --md article.md
-```
+Plain text (`.txt`) files are also accepted — they're treated as a single
+section with no metadata detection.
 
 ## How It Works
 
-1. **Save** the article page from your browser as HTML (File → Save As → Webpage, HTML Only)
-2. **Extract**: reed parses the HTML — detecting metadata (title, author, date) and the article body using heuristics that work across Substack, blogs, news sites, and most CMS platforms
+1. **Provide** your article — paste text in the web UI or upload a Markdown/plain text file
+2. **Extract**: reed parses the input, detecting metadata (title, author, date) and structuring content into sections
 3. **Convert**: the extracted content is converted to your chosen format:
    - **EPUB**: Kindle-optimized ebook with proper metadata, TOC, and styling
-   - **Markdown**: HTML body is converted via `markdownify` with a metadata header
-   - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Kokoro-82M, and encoded to MP3
+   - **Markdown**: structured Markdown with a metadata header
+   - **Audiobook**: Content sections are split into TTS-friendly chunks, synthesized with Kokoro-82M, and encoded to M4B or MP3

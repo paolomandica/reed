@@ -88,6 +88,37 @@ class WebApiTests(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_html_file_is_rejected(self) -> None:
+        from io import BytesIO
+
+        resp = self.client.post(
+            "/api/generate",
+            data={
+                "format": "epub",
+                "source_type": "file",
+                "file": (BytesIO(b"<html></html>"), "article.html"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("Markdown", resp.get_json()["error"])
+
+    def test_txt_file_is_accepted(self) -> None:
+        from io import BytesIO
+
+        with mock.patch.object(web, "_run_generation", side_effect=_fake_run_generation):
+            resp = self.client.post(
+                "/api/generate",
+                data={
+                    "format": "epub",
+                    "source_type": "file",
+                    "file": (BytesIO(b"# Hello\n\nSome text."), "article.txt"),
+                },
+                content_type="multipart/form-data",
+            )
+        self.assertEqual(resp.status_code, 202)
+
+
     def test_unknown_task_returns_404(self) -> None:
         resp = self.client.get("/api/task/does-not-exist")
         self.assertEqual(resp.status_code, 404)

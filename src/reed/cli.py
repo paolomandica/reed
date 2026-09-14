@@ -9,7 +9,7 @@ from pathlib import Path
 
 import click
 
-from .inputs import extract_from_html, extract_from_markdown
+from .inputs import extract_from_markdown
 from .models import Article
 from .outputs import generate_epub, generate_markdown
 from .sample import sample_article_path as _sample_article_path
@@ -17,25 +17,17 @@ from .sample import sample_article_path as _sample_article_path
 logger = logging.getLogger(__name__)
 
 
-def _resolve_article(
-    html_file: Path | None = None,
-    md_file: Path | None = None,
-) -> Article:
-    """Resolve an Article from a local HTML file or Markdown file.
+def _resolve_article(input_file: Path | None = None) -> Article:
+    """Resolve an Article from a local Markdown or plain-text file.
 
-    Exactly one of *html_file* or *md_file* must be provided.
+    *input_file* must be provided.
     """
-    if html_file:
-        logger.info("Extracting from HTML file: %s", html_file)
-        return extract_from_html(html_file)
-
-    if md_file:
-        logger.info("Extracting from Markdown file: %s", md_file)
-        return extract_from_markdown(md_file)
+    if input_file:
+        logger.info("Extracting from file: %s", input_file)
+        return extract_from_markdown(input_file)
 
     click.echo(
-        "Error: Please provide either --html or --md flag.\n\n"
-        "Try: reed --help",
+        "Error: Please provide an --input file.\n\nTry: reed --help",
         err=True,
     )
     sys.exit(1)
@@ -83,14 +75,14 @@ def main(ctx: click.Context) -> None:
     \b
     Examples:
       reed demo
-      reed epub --html saved_article.html
-      reed epub --md article.md
-      reed markdown --html saved_article.html
-      reed audiobook --html saved_article.html
-      reed audiobook --md article.md
-      reed audiobook -o out.mp3 --html article.html
+      reed epub -i article.md
+      reed markdown -i article.md
+      reed audiobook -i article.md
+      reed audiobook -i article.md --voice af_bella
+      reed audiobook -o out.m4b -i article.md
       reed web
     """
+
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         return
@@ -188,9 +180,7 @@ def _check_tts_libraries() -> bool:
         from kokoro import KPipeline  # noqa: F401
     except ImportError as exc:
         click.echo(f"✗ TTS libraries: {exc}")
-        click.echo(
-            "  Reinstall reed with its dependencies: `uv tool install --force reed-cli`"
-        )
+        click.echo("  Reinstall reed with its dependencies: `uv tool install --force reed-cli`")
         return False
     click.echo("✓ TTS libraries: kokoro, torch, soundfile")
     return True
@@ -202,39 +192,31 @@ def _check_tts_libraries() -> bool:
 
 
 @main.command("epub")
+@click.option("-o", "--output", type=click.Path(path_type=Path), help="Output EPUB path")
 @click.option(
-    "-o", "--output", type=click.Path(path_type=Path), help="Output EPUB path"
-)
-@click.option(
-    "--html",
-    "html_file",
+    "-i",
+    "--input",
+    "input_file",
     type=click.Path(exists=True, path_type=Path),
-    help="Use a local HTML file",
-)
-@click.option(
-    "--md",
-    "md_file",
-    type=click.Path(exists=True, path_type=Path),
-    help="Use a local Markdown file",
+    help="Markdown (.md) or plain text (.txt) file — Markdown recommended",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 def epub_cmd(
     output: Path | None,
-    html_file: Path | None,
-    md_file: Path | None,
+    input_file: Path | None,
     verbose: bool,
 ) -> None:
     """Generate a Kindle-compatible EPUB from an article.
 
     \b
-    Use a local HTML or Markdown file:
-        reed epub --html article.html
-        reed epub --md article.md
+    Use a local Markdown or plain-text file:
+        reed epub -i article.md
+        reed epub -i article.txt
     """
     _setup_logging(verbose)
 
     try:
-        article = _resolve_article(html_file=html_file, md_file=md_file)
+        article = _resolve_article(input_file=input_file)
 
         logger.info(
             "Article: title=%r, author=%r, sections=%d",
@@ -278,16 +260,11 @@ def epub_cmd(
     help="Output audio file path (default: <title-slug>.m4b)",
 )
 @click.option(
-    "--html",
-    "html_file",
+    "-i",
+    "--input",
+    "input_file",
     type=click.Path(exists=True, path_type=Path),
-    help="Use a local HTML file",
-)
-@click.option(
-    "--md",
-    "md_file",
-    type=click.Path(exists=True, path_type=Path),
-    help="Use a local Markdown file",
+    help="Markdown (.md) or plain text (.txt) file — Markdown recommended",
 )
 @click.option(
     "--voice",
@@ -326,8 +303,7 @@ def epub_cmd(
 )
 def audiobook_cmd(
     output: Path | None,
-    html_file: Path | None,
-    md_file: Path | None,
+    input_file: Path | None,
     voice: str,
     list_voices: bool,
     speed: float,
@@ -345,11 +321,11 @@ def audiobook_cmd(
 
     \b
     Examples:
-        reed audiobook --html article.html
-        reed audiobook --html article.html --voice af_bella
-        reed audiobook --md article.md --speed 0.85
-        reed audiobook --html article.html --format mp3
-        reed audiobook -o out.m4b --html article.html
+        reed audiobook -i article.md
+        reed audiobook -i article.md --voice af_bella
+        reed audiobook -i article.md --speed 0.85
+        reed audiobook -i article.md --format mp3
+        reed audiobook -o out.m4b -i article.md
         reed audiobook --list-voices
     """
     # Lazy import — pulls in numpy, soundfile, kokoro (heavy)
@@ -371,7 +347,7 @@ def audiobook_cmd(
         sys.exit(1)
 
     try:
-        article = _resolve_article(html_file=html_file, md_file=md_file)
+        article = _resolve_article(input_file=input_file)
 
         if max_sections > 0 and len(article.sections) > max_sections:
             article.sections = article.sections[:max_sections]
@@ -390,9 +366,7 @@ def audiobook_cmd(
         else:
             audiobooks_dir = Path("audiobooks")
             audiobooks_dir.mkdir(exist_ok=True)
-            output_path = audiobooks_dir / article.output_filename().replace(
-                ".epub", suffix
-            )
+            output_path = audiobooks_dir / article.output_filename().replace(".epub", suffix)
         if output_path.suffix != suffix:
             output_path = output_path.with_suffix(suffix)
 
@@ -420,9 +394,7 @@ def audiobook_cmd(
 
 
 @main.command("web")
-@click.option(
-    "--host", default="127.0.0.1", show_default=True, help="Host address to bind to"
-)
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host address to bind to")
 @click.option("--port", default=8080, show_default=True, help="Port to listen on")
 @click.option(
     "--open/--no-open",
@@ -492,39 +464,31 @@ def web_cmd(host: str, port: int, open_browser: bool, debug: bool) -> None:
 
 
 @main.command("markdown")
+@click.option("-o", "--output", type=click.Path(path_type=Path), help="Output Markdown path")
 @click.option(
-    "-o", "--output", type=click.Path(path_type=Path), help="Output Markdown path"
-)
-@click.option(
-    "--html",
-    "html_file",
+    "-i",
+    "--input",
+    "input_file",
     type=click.Path(exists=True, path_type=Path),
-    help="Use a local HTML file",
-)
-@click.option(
-    "--md",
-    "md_file",
-    type=click.Path(exists=True, path_type=Path),
-    help="Use a local Markdown file",
+    help="Markdown (.md) or plain text (.txt) file — Markdown recommended",
 )
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed progress")
 def markdown_cmd(
     output: Path | None,
-    html_file: Path | None,
-    md_file: Path | None,
+    input_file: Path | None,
     verbose: bool,
 ) -> None:
     """Generate a Markdown file from an article.
 
     \b
-    Use a local HTML or Markdown file:
-        reed markdown --html article.html
-        reed markdown --md article.md
+    Use a local Markdown or plain-text file:
+        reed markdown -i article.md
+        reed markdown -i article.txt
     """
     _setup_logging(verbose)
 
     try:
-        article = _resolve_article(html_file=html_file, md_file=md_file)
+        article = _resolve_article(input_file=input_file)
 
         logger.info(
             "Article: title=%r, author=%r, sections=%d",
@@ -538,9 +502,7 @@ def markdown_cmd(
         else:
             articles_dir = Path("articles")
             articles_dir.mkdir(exist_ok=True)
-            output_path = articles_dir / article.output_filename().replace(
-                ".epub", ".md"
-            )
+            output_path = articles_dir / article.output_filename().replace(".epub", ".md")
         if output_path.suffix != ".md":
             output_path = output_path.with_suffix(".md")
 

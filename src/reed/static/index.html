@@ -33,19 +33,28 @@
     </div>
 
     <div class="toggle-group" id="source-toggle" role="tablist" aria-label="Source type">
-      <button data-source="file" class="active" role="tab" aria-selected="true">📄 Upload a file</button>
-      <button data-source="paste" role="tab" aria-selected="false">✏️ Paste text</button>
+      <button data-source="paste" class="active" role="tab" aria-selected="true">✏️ Paste text</button>
+      <button data-source="file" role="tab" aria-selected="false">📄 Upload a file</button>
     </div>
 
-    <div class="input-section visible" id="file-section">
-      <label for="file-input">Upload a saved article</label>
+    <div class="input-section visible" id="paste-section">
+      <label for="paste-input">Paste your article</label>
+      <textarea id="paste-input" placeholder="Paste your article text here…
+
+You can paste Markdown, or just plain text — we'll figure it out. The first heading becomes the title."></textarea>
+      <p class="hint">Copy any article text and paste it above — we'll handle the formatting. Markdown gives the best results: headings become chapters, and metadata (author, date) is detected automatically.</p>
+      <p class="field-error" id="paste-error" role="alert"></p>
+    </div>
+
+    <div class="input-section" id="file-section">
+      <label for="file-input">Upload a Markdown or text file</label>
 
       <div class="dropzone" id="dropzone" tabindex="0" role="button"
-           aria-label="Upload a saved article — drag and drop or click to browse">
-        <input type="file" id="file-input" accept=".html,.htm,.md" aria-hidden="true" tabindex="-1">
+           aria-label="Upload a Markdown or text file — drag and drop or click to browse">
+        <input type="file" id="file-input" accept=".md,.txt" aria-hidden="true" tabindex="-1">
         <span class="dropzone-icon" aria-hidden="true">📥</span>
-        <span class="dropzone-title">Drag &amp; drop or <span class="browse">browse</span></span>
-        <span class="dropzone-sub">HTML or Markdown · up to 16&nbsp;MB</span>
+        <span class="dropzone-title">Drag & drop or <span class="browse">browse</span></span>
+        <span class="dropzone-sub">Markdown or plain text · up to 16&nbsp;MB</span>
       </div>
 
       <div class="file-chip" id="file-chip">
@@ -57,18 +66,10 @@
         <button type="button" class="file-chip-remove" id="file-chip-remove" aria-label="Remove file" title="Remove file">×</button>
       </div>
 
-      <p class="hint">Save any article page from your browser (File → Save As → Webpage, HTML Only), then drop it here. Works with Substack, blogs, news sites, and most article pages.</p>
+      <p class="hint">Markdown (.md) gives the best results — headings become chapters and metadata is detected. Plain text (.txt) works too.</p>
       <p class="field-error" id="file-error" role="alert"></p>
     </div>
 
-    <div class="input-section" id="paste-section">
-      <label for="paste-input">Paste your article</label>
-      <textarea id="paste-input" placeholder="Paste your article text here…
-
-You can paste Markdown, or just plain text — we'll figure it out. The first heading becomes the title."></textarea>
-      <p class="hint">Copy any article text and paste it above — we'll handle the formatting.</p>
-      <p class="field-error" id="paste-error" role="alert"></p>
-    </div>
   </div>
 
   <!-- Format card -->

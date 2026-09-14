@@ -219,18 +219,19 @@ function validate() {
   if (sourceType === "file") {
     const file = fileInput.files[0];
     if (!file) {
-      fileError.textContent = "Please select an article file to upload.";
+      fileError.textContent = "Please select a file to upload.";
       fileError.classList.add("visible");
       valid = false;
     } else {
       const fname = file.name.toLowerCase();
-      if (!fname.endsWith(".html") && !fname.endsWith(".htm") && !fname.endsWith(".md")) {
-        fileError.textContent = "This file type isn't supported. Please upload an HTML or Markdown file.";
+      if (!fname.endsWith(".md") && !fname.endsWith(".txt")) {
+        fileError.textContent = "This file type isn't supported. Please upload a Markdown (.md) or plain text (.txt) file.";
         fileError.classList.add("visible");
         valid = false;
       }
     }
   } else {
+
     const text = pasteInput.value.trim();
     if (!text) {
       pasteError.textContent = "Please paste some article text first.";

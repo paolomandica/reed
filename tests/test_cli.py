@@ -9,6 +9,7 @@ from reed.cli import main
 
 
 class DoctorCommandTests(TestCase):
+
     def test_doctor_reports_ready_when_dependencies_are_available(self) -> None:
         with TemporaryDirectory() as directory:
             cache_dir = Path(directory)
@@ -69,3 +70,49 @@ class DoctorCommandTests(TestCase):
         self.assertNotEqual(result.exit_code, 0)
         self.assertIn("✗ TTS libraries: No module named 'torch'", result.output)
         self.assertIn("uv tool install --force reed-cli", result.output)
+
+
+class InputOptionTests(TestCase):
+    """Tests for the --input / -i option replacing --html and --md."""
+
+    def test_html_flag_is_no_longer_available(self) -> None:
+        result = CliRunner().invoke(main, ["epub", "--help"])
+        self.assertEqual(result.exit_code, 0)
+        self.assertNotIn("--html", result.output)
+        self.assertNotIn("--md", result.output)
+        self.assertIn("--input", result.output)
+
+    def test_epub_generates_from_markdown_input(self) -> None:
+        with TemporaryDirectory() as directory:
+            md_path = Path(directory) / "article.md"
+            md_path.write_text("# Test Article\n\nSome body text.\n", encoding="utf-8")
+            output_path = Path(directory) / "out.epub"
+
+            with patch("reed.cli.generate_epub") as mock_gen:
+                result = CliRunner().invoke(
+                    main, ["epub", "-i", str(md_path), "-o", str(output_path)]
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("EPUB generated", result.output)
+        mock_gen.assert_called_once()
+
+    def test_epub_generates_from_txt_input(self) -> None:
+        with TemporaryDirectory() as directory:
+            txt_path = Path(directory) / "article.txt"
+            txt_path.write_text("# Test Article\n\nSome body text.\n", encoding="utf-8")
+            output_path = Path(directory) / "out.epub"
+
+            with patch("reed.cli.generate_epub") as mock_gen:
+                result = CliRunner().invoke(
+                    main, ["epub", "--input", str(txt_path), "-o", str(output_path)]
+                )
+
+        self.assertEqual(result.exit_code, 0, result.output)
+        self.assertIn("EPUB generated", result.output)
+        mock_gen.assert_called_once()
+
+    def test_epub_without_input_shows_error(self) -> None:
+        result = CliRunner().invoke(main, ["epub"])
+        self.assertNotEqual(result.exit_code, 0)
+

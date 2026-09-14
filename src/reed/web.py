@@ -26,7 +26,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-from .inputs import extract_from_html, extract_from_markdown
+from .inputs import extract_from_markdown
 from .models import Article
 from .outputs import generate_audiobook, generate_epub, generate_markdown
 
@@ -314,31 +314,28 @@ def _handle_generate() -> tuple:
                     400,
                 )
             fname_lower = (uploaded.filename or "").lower()
-            if not (fname_lower.endswith((".html", ".htm")) or fname_lower.endswith(".md")):
+            if not (fname_lower.endswith(".md") or fname_lower.endswith(".txt")):
                 return (
                     jsonify(
                         {
                             "error": (
-                                f"File must be an HTML file (.html/.htm) or "
-                                f"Markdown file (.md), got: {uploaded.filename}"
+                                f"File must be a Markdown (.md) or plain text "
+                                f"(.txt) file, got: {uploaded.filename}"
                             )
                         }
                     ),
                     400,
                 )
 
-            is_md = fname_lower.endswith(".md")
-            suffix = ".md" if is_md else ".html"
+            suffix = ".md" if fname_lower.endswith(".md") else ".txt"
             with tempfile.NamedTemporaryFile(
                 suffix=suffix, delete=False
             ) as tmp:
                 uploaded.save(tmp.name)
                 tmp_html = Path(tmp.name)
 
-            if is_md:
-                article = extract_from_markdown(tmp_html)
-            else:
-                article = extract_from_html(tmp_html)
+            article = extract_from_markdown(tmp_html)
+
 
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
