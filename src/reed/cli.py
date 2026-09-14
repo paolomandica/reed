@@ -313,7 +313,8 @@ def audiobook_cmd(
 
     \b
     Kokoro-82M is a lightweight (82M params) open-weight TTS model with
-    20 American English voices.  Requires the espeak-ng system package.
+    American and British English voices.  Requires the espeak-ng system
+    package.
 
     The model is downloaded from Hugging Face on first run and cached locally.
 
@@ -333,7 +334,7 @@ def audiobook_cmd(
     if list_voices:
         from .outputs.audiobook import _KOKORO_VOICES
 
-        click.echo("Kokoro American English voices:\n")
+        click.echo("Kokoro English voices:\n")
         for v in _KOKORO_VOICES:
             click.echo(f"  {v}")
         return

@@ -45,7 +45,8 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 # Constants / model cache
 # ---------------------------------------------------------------------------
 
-_kokoro_pipeline: object | None = None  # KPipeline
+_kokoro_pipeline: object | None = None  # KPipeline (American English)
+_kokoro_pipeline_british: object | None = None  # KPipeline (British English)
 _MAX_CHARS = 500
 _SENTENCE_RE = re.compile(r"(?<=[.!?…])\s+|\n+")
 _FFMPEG_TIMEOUT_SECONDS = 120
@@ -57,8 +58,10 @@ _PREVIEW_TEXT = (
     "Pick the voice you like best."
 )
 
-# American English voices for Kokoro, with Hugging Face quality grades.
-# af_ = American female, am_ = American male.  Insertion order is quality order.
+# English voices for Kokoro, with Hugging Face quality grades.
+# af_ = American female, am_ = American male,
+# bf_ = British female, bm_ = British male.
+# Insertion order is quality order within each accent group.
 _KOKORO_VOICE_GRADES: dict[str, str] = {
     "af_heart": "A",
     "af_bella": "A-",
@@ -80,6 +83,14 @@ _KOKORO_VOICE_GRADES: dict[str, str] = {
     "am_onyx": "D",
     "am_santa": "D-",
     "am_adam": "F+",
+    "bf_emma": "A",
+    "bf_isabella": "A-",
+    "bf_alice": "B-",
+    "bf_lily": "C+",
+    "bm_george": "B+",
+    "bm_fable": "B",
+    "bm_lewis": "C+",
+    "bm_daniel": "C",
 }
 
 # Flat list of voice IDs (used for validation and as the default ordering).
@@ -92,7 +103,7 @@ def kokoro_voice_catalog() -> list[dict[str, str]]:
         {
             "id": voice_id,
             "grade": grade,
-            "gender": "female" if voice_id.startswith("af_") else "male",
+            "gender": "female" if voice_id[1] == "f" else "male",
         }
         for voice_id, grade in _KOKORO_VOICE_GRADES.items()
     ]
@@ -103,11 +114,11 @@ def kokoro_voice_catalog() -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def _load_kokoro_pipeline() -> object:
+def _load_kokoro_pipeline(lang_code: str = "a") -> object:
     """Load (or return cached) Kokoro TTS pipeline.
 
     Downloads ``hexgrad/Kokoro-82M`` from Hugging Face on first use.
-    Uses American English (lang_code='a').
+    Uses American English (lang_code='a') or British English (lang_code='b').
 
     On Apple Silicon, uses the Metal (MPS) accelerator when available and
     sets ``PYTORCH_ENABLE_MPS_FALLBACK=1`` so Kokoro's ops that don't have
@@ -115,22 +126,46 @@ def _load_kokoro_pipeline() -> object:
     """
     from kokoro import KPipeline
 
-    global _kokoro_pipeline
-    if _kokoro_pipeline is None:
-        # Enable MPS fallback on Apple Silicon
-        if hasattr(os, "uname") and os.uname().sysname == "Darwin":
-            os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-        device = _detect_device()
-        click.echo(f"Loading Kokoro-82M pipeline (lang=en, device={device})...")
-        try:
-            _kokoro_pipeline = KPipeline(lang_code="a", device=device)
-        except RuntimeError:
-            if device != "mps":
-                raise
-            click.echo("MPS failed to initialize — falling back to CPU.", err=True)
-            _kokoro_pipeline = KPipeline(lang_code="a", device="cpu")
-        click.echo("Kokoro pipeline loaded (sample rate=24000 Hz).")
-    return _kokoro_pipeline
+    if lang_code not in ("a", "b"):
+        raise ValueError(f"Unsupported lang_code: {lang_code!r}")
+
+    global _kokoro_pipeline, _kokoro_pipeline_british
+    cache = _kokoro_pipeline if lang_code == "a" else _kokoro_pipeline_british
+    if cache is not None:
+        return cache
+
+    # Enable MPS fallback on Apple Silicon
+    if hasattr(os, "uname") and os.uname().sysname == "Darwin":
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    device = _detect_device()
+    accent = "American English" if lang_code == "a" else "British English"
+    click.echo(f"Loading Kokoro-82M pipeline (lang={accent}, device={device})...")
+    try:
+        pipeline = KPipeline(lang_code=lang_code, device=device)
+    except RuntimeError:
+        if device != "mps":
+            raise
+        click.echo("MPS failed to initialize — falling back to CPU.", err=True)
+        pipeline = KPipeline(lang_code=lang_code, device="cpu")
+    click.echo("Kokoro pipeline loaded (sample rate=24000 Hz).")
+
+    if lang_code == "a":
+        _kokoro_pipeline = pipeline
+    else:
+        _kokoro_pipeline_british = pipeline
+    return pipeline
+
+
+def _get_pipeline(voice: str) -> object:
+    """Return the Kokoro pipeline matching the voice's accent.
+
+    British voices (``b``-prefixed) use a British English pipeline so G2P
+    produces proper British pronunciation; all other voices use the
+    American English pipeline.
+    """
+    if voice.startswith("b"):
+        return _load_kokoro_pipeline(lang_code="b")
+    return _load_kokoro_pipeline(lang_code="a")
 
 
 def _detect_device() -> str:
@@ -225,7 +260,7 @@ def narration_segments_for_tts(
 
     normal_pause = max(0, silence_ms)
     long_pause = int(normal_pause * 1.5)
-    short_pause = normal_pause // 1.5
+    short_pause = int(normal_pause // 1.5)
     units: list[tuple[str, int, str]] = []
     chapter_title = ""
 
@@ -771,7 +806,7 @@ def generate_voice_preview(
         return cache_path
 
     logger.debug("Voice preview cache miss, synthesizing: %s", cache_path.name)
-    pipeline = _load_kokoro_pipeline()
+    pipeline = _get_pipeline(voice)
     sample_rate, audio = _generate_kokoro_speech(
         _PREVIEW_TEXT, pipeline, voice=voice, speed=speed
     )
@@ -823,8 +858,8 @@ def generate_audiobook(
 ) -> Path:
     """Convert an article to spoken audio and save as MP3 or chaptered M4B.
 
-    Uses ``hexgrad/Kokoro-82M`` (82M params, 20 American English voices,
-    Apache-2.0 licensed).  Requires the ``espeak-ng`` system package.
+    Uses ``hexgrad/Kokoro-82M`` (82M params, American and British English
+    voices, Apache-2.0 licensed).  Requires the ``espeak-ng`` system package.
 
     Args:
         article: Structured article with content sections.
@@ -854,7 +889,7 @@ def generate_audiobook(
     if output_format not in ("mp3", "m4b"):
         raise ValueError("output_format must be 'mp3' or 'm4b'")
 
-    pipeline = _load_kokoro_pipeline()
+    pipeline = _get_pipeline(voice)
     click.echo(f"Kokoro model device: {_pipeline_device_label(pipeline)}")
 
     segments = narration_segments_for_tts(article, max_chars, silence_ms=silence_ms)

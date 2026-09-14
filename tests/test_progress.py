@@ -28,7 +28,7 @@ def _heavy_deps_patched() -> ExitStack:
     """Stub the TTS/ffmpeg machinery so generate_audiobook is fast and pure."""
     stack = ExitStack()
     stack.enter_context(
-        mock.patch.object(audiobook, "_load_kokoro_pipeline", return_value=object())
+        mock.patch.object(audiobook, "_get_pipeline", return_value=object())
     )
     stack.enter_context(
         mock.patch.object(

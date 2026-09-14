@@ -241,7 +241,7 @@ class NarrationSegmentationTests(unittest.TestCase):
             "A list entry",
         ])
         self.assertEqual([segment.pause_after_ms for segment in segments], [
-            1000, 1000, 1000, 500, 250,
+            750, 750, 750, 500, 333,
         ])
 
     def test_long_units_respect_the_character_limit_without_internal_pause(self) -> None:
@@ -256,7 +256,7 @@ class NarrationSegmentationTests(unittest.TestCase):
         segments = narration_segments_for_tts(article, 20)
         self.assertTrue(all(len(segment.text) <= 20 for segment in segments))
         self.assertEqual(segments[0].text, "T.")
-        self.assertEqual(segments[0].pause_after_ms, 1000)
+        self.assertEqual(segments[0].pause_after_ms, 750)
         self.assertEqual([segment.pause_after_ms for segment in segments[1:-1]], [0] * (len(segments) - 2))
         self.assertEqual(segments[-1].pause_after_ms, 500)
 

@@ -33,7 +33,7 @@ def _heavy_deps_patched() -> ExitStack:
     """Stub the TTS/ffmpeg machinery so generate_audiobook is fast and pure."""
     stack = ExitStack()
     stack.enter_context(
-        mock.patch.object(audiobook, "_load_kokoro_pipeline", return_value=object())
+        mock.patch.object(audiobook, "_get_pipeline", return_value=object())
     )
     stack.enter_context(
         mock.patch.object(
@@ -154,12 +154,12 @@ class GenerateAudiobookM4bTests(unittest.TestCase):
             [(title, start) for title, start, _end in chapters],
             [
                 ("Introduction", 0),
-                ("First Heading", 2200),
-                ("Second Heading", 3900),
+                ("First Heading", 1700),
+                ("Second Heading", 3150),
             ],
         )
-        self.assertEqual(chapters[0][2], 2200)
-        self.assertEqual(chapters[1][2], 3900)
+        self.assertEqual(chapters[0][2], 1700)
+        self.assertEqual(chapters[1][2], 3150)
 
     def test_invalid_output_format_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory, _heavy_deps_patched():

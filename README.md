@@ -176,7 +176,7 @@ Options:
 
 Generate a chaptered M4B audiobook (or flat MP3) from an article using **Kokoro-82M**
 (hexgrad/Kokoro-82M) — a lightweight 82M-parameter open-weight TTS model
-with 20 American English voices, Apache-2.0 licensed.
+with American and British English voices, Apache-2.0 licensed.
 
 On Apple Silicon Macs, reed automatically runs the model on the Metal GPU
 (MPS) when available and falls back to CPU otherwise.
@@ -223,13 +223,13 @@ voices, speed, and progress bars apply to both.
 
 #### Voices
 
-Kokoro-82M includes 20 American English voices. The three featured in the web interface:
+Kokoro-82M includes 28 American and British English voices. The three featured in the web interface:
 
 | Voice | Grade | Character |
 |-------|-------|-----------|
-| `af_heart` | A | ❤️ Warm, natural |
-| `af_bella` | A- | 🔥 Expressive |
-| `am_puck` | C+ | 🎧 Clear, balanced |
+| `af_heart` | A | ❤️ Female, US |
+| `am_michael` | C+ | 🎙️ Male, US |
+| `bf_emma` | A | 👑 Female, GB |
 
 Use `reed audiobook --list-voices` for the full list.
 

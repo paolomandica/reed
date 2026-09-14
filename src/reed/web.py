@@ -424,7 +424,7 @@ def create_app(debug: bool = False) -> Flask:
 
             catalog = kokoro_voice_catalog()
         except ImportError:
-            _KOKORO_VOICES = ["af_heart", "af_bella"]
+            _KOKORO_VOICES = ["af_heart", "am_michael", "bf_emma"]
             catalog = [{"id": v, "grade": "", "gender": ""} for v in _KOKORO_VOICES]
         return jsonify(
             {

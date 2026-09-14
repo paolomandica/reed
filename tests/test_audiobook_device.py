@@ -55,9 +55,11 @@ class DeviceDetectionTests(TestCase):
 class KokoroPipelineLoadTests(TestCase):
     def setUp(self) -> None:
         audiobook._kokoro_pipeline = None
+        audiobook._kokoro_pipeline_british = None
 
     def tearDown(self) -> None:
         audiobook._kokoro_pipeline = None
+        audiobook._kokoro_pipeline_british = None
 
     def test_load_requests_the_detected_device(self) -> None:
         pipeline = mock.Mock()
