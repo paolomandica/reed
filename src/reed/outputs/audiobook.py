@@ -60,26 +60,26 @@ _PREVIEW_TEXT = (
 # American English voices for Kokoro, with Hugging Face quality grades.
 # af_ = American female, am_ = American male.  Insertion order is quality order.
 _KOKORO_VOICE_GRADES: dict[str, str] = {
-    "af_heart":   "A",
-    "af_bella":   "A-",
-    "af_nicole":  "B-",
-    "af_aoede":   "C+",
-    "af_kore":    "C+",
-    "af_sarah":   "C+",
-    "af_alloy":   "C",
-    "af_nova":    "C",
-    "af_sky":     "C-",
+    "af_heart": "A",
+    "af_bella": "A-",
+    "af_nicole": "B-",
+    "af_aoede": "C+",
+    "af_kore": "C+",
+    "af_sarah": "C+",
+    "af_alloy": "C",
+    "af_nova": "C",
+    "af_sky": "C-",
     "af_jessica": "D",
-    "af_river":   "D",
-    "am_fenrir":  "C+",
+    "af_river": "D",
+    "am_fenrir": "C+",
     "am_michael": "C+",
-    "am_puck":    "C+",
-    "am_echo":    "D",
-    "am_eric":    "D",
-    "am_liam":    "D",
-    "am_onyx":    "D",
-    "am_santa":   "D-",
-    "am_adam":    "F+",
+    "am_puck": "C+",
+    "am_echo": "D",
+    "am_eric": "D",
+    "am_liam": "D",
+    "am_onyx": "D",
+    "am_santa": "D-",
+    "am_adam": "F+",
 }
 
 # Flat list of voice IDs (used for validation and as the default ordering).
@@ -224,8 +224,8 @@ def narration_segments_for_tts(
         raise ValueError("max_chars must be greater than zero")
 
     normal_pause = max(0, silence_ms)
-    long_pause = normal_pause * 2
-    short_pause = normal_pause // 2
+    long_pause = int(normal_pause * 1.5)
+    short_pause = normal_pause // 1.5
     units: list[tuple[str, int, str]] = []
     chapter_title = ""
 
@@ -353,6 +353,7 @@ def _split_by_words(text: str, max_chars: int) -> list[str]:
         chunks.append(" ".join(current))
     return chunks
 
+
 # ---------------------------------------------------------------------------
 # Audio helpers (numpy + ffmpeg)
 # ---------------------------------------------------------------------------
@@ -393,7 +394,9 @@ def _concat_audio(
     for index, chunk in enumerate(audio_chunks):
         ch_sr, ch_audio = chunk[0], chunk[1]
         if ch_sr != sr0:
-            raise ValueError(f"Chunk {index} has different sample rate: {ch_sr} vs {sr0}")
+            raise ValueError(
+                f"Chunk {index} has different sample rate: {ch_sr} vs {sr0}"
+            )
         parts.append(_as_float32_mono(ch_audio))
 
         if index == len(audio_chunks) - 1:
@@ -854,9 +857,7 @@ def generate_audiobook(
     pipeline = _load_kokoro_pipeline()
     click.echo(f"Kokoro model device: {_pipeline_device_label(pipeline)}")
 
-    segments = narration_segments_for_tts(
-        article, max_chars, silence_ms=silence_ms
-    )
+    segments = narration_segments_for_tts(article, max_chars, silence_ms=silence_ms)
     if not segments:
         raise ValueError("Article has no text content to convert to speech.")
 
