@@ -137,6 +137,7 @@ Commands:
   audiobook   Generate an M4B or MP3 audiobook using Kokoro-82M TTS
   demo        Generate EPUB and audiobook from a bundled sample article
   web         Start a browser-based web interface
+  doctor      Check audiobook dependencies
 ```
 
 ### Demo
@@ -149,7 +150,8 @@ reed demo
 
 This generates `reed-demo/<article-title>.epub` and a chaptered `.m4b`
 audiobook. Add `--no-audiobook` to skip the audiobook (and its first-run
-Kokoro model download):
+Kokoro model download), or `--format mp3` to get a flat MP3 instead of the
+chaptered M4B:
 
 ```bash
 reed demo --no-audiobook
@@ -255,15 +257,18 @@ Options:
   --voice TEXT             Kokoro voice  [default: af_heart]
   --list-voices            List available Kokoro voices and exit.
   --speed FLOAT            Playback speed (0.5–2.0)  [default: 1.0]
+  --format [mp3|m4b]       Audio container: m4b (chaptered from headings) or
+                           mp3 (flat)  [default: m4b]
   -v, --verbose            Show detailed progress
   --max-sections INTEGER   Only process the first N sections (0 = all) —
                            quick-test shortcut
   --help                   Show this message
 ```
 
-The article text is split at natural narration boundaries and exported as a
-64 kbps MP3. Titles, author credits, headings, paragraphs, and list items use
-appropriately paced transitions; speed is applied natively during generation.
+The article text is split at natural narration boundaries and encoded at
+64 kbps — a chaptered M4B by default, or a flat MP3 with `--format mp3`.
+Titles, author credits, headings, paragraphs, and list items use appropriately
+paced transitions; speed is applied natively during generation.
 
 When the input is Markdown, reed supports its own metadata header and common
 article Markdown. It recognizes an initial title (including `# Title: ...`),
