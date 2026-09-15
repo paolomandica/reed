@@ -66,10 +66,10 @@ reed = "reed.cli:main"
 
 [tool.uv]
 # curated-tokenizers 0.0.9 (sdist-only; pulled in via misaki[en] ->
-# spacy-curated-transformers 0.3.1) fails to compile with Cython 3.x
-# ("Compiler crash in OptimizeBuiltinCalls"). Constrain the isolated build
-# environment to Cython 1.x so the sdist builds on CI.
-build-constraint-dependencies = ["cython<3"]
+# spacy-curated-transformers 0.3.1) fails to compile with Cython 3.3+
+# ("Compiler crash in OptimizeBuiltinCalls"), while Cython <3 cannot target
+# Python 3.13's C API. Pin the isolated build environment to Cython 3.2.x.
+build-constraint-dependencies = ["cython>=3.2,<3.3"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/reed"]
