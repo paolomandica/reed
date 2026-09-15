@@ -98,6 +98,11 @@ Want to see it work before touching your own files? Click **✨ Generate the
 demo** to produce both formats from a bundled sample article — no file
 needed.
 
+Have an article link but no clean Markdown? The **Get a tailored prompt for
+your article** card writes a ready-to-paste prompt (verbatim or fluent style)
+for whichever AI chat you use — paste the Markdown it hands back into the form
+above and generate from there.
+
 ```text
 Usage: reed web [OPTIONS]
 

@@ -28,7 +28,7 @@
 
 ## Phase 3 — Feature upgrades
 
-- [ ] **Use Misaki as the primary English Kokoro phonemizer**
+- [x] **Use Misaki as the primary English Kokoro phonemizer**
   - `misaki[en]` is declared directly; Kokoro handles Misaki G2P first and espeak-ng remains the out-of-dictionary fallback.
 
 - [x] **Chaptered M4B audiobooks from section headings (option alongside MP3)**
@@ -42,7 +42,7 @@
   - Web mode keeps its `progress_callback` as the only progress channel — no bars or chunk lines leak into server logs; encode progress is reported through the callback too.
 - [x] **Bundle a sample article (`examples/`) and add `reed demo` generating all three formats**
   - Sample: `examples/reed-demo.md` — original ~200-word Markdown article (headings, blockquote, list), force-included into the wheel as `reed/examples/reed-demo.md`; a resolver falls back to the repo copy in source checkouts.
-  - `reed demo [--output-dir reed-demo] [--voice af_heart] [--speed 1.0] [--max-chunks 0] [--no-audiobook]` generates EPUB → Markdown → MP3 into one folder. Audiobook is on by default; `--no-audiobook` skips it (and the ffmpeg/espeak-ng pre-check); missing deps print the fix command plus a `reed doctor` hint.
+  - `reed demo [--output-dir reed-demo] [--voice af_heart] [--speed 1.0] [--max-chunks 0] [--no-audiobook] [--format m4b|mp3]` generates an EPUB plus a chaptered M4B audiobook into one folder. Audiobook is on by default; `--no-audiobook` skips it (and the ffmpeg/espeak-ng pre-check); missing deps print the fix command plus a `reed doctor` hint.
   - CI asserts the wheel contains `reed/examples/reed-demo.md`.
 
 ## Phase 4 — Demo & README polish
@@ -83,3 +83,6 @@
 - 2026-08-05 — Release workflow documented in `AGENTS.md` (version bump incl. `uv.lock`, build, tag, publish hand-off, `gh release create`).
 - 2026-08-05 — v0.3.0 released: `reed-cli` 0.3.0 published to PyPI and GitHub release created (tag `v0.3.0`).
 - 2026-08-05 — v0.3.1 released: patch fix — M4B album tag now carries the article title so Apple Books shows the book title instead of "reed".
+- 2026-09-15 — Inputs and outputs narrowed: reed takes Markdown (`.md`) or plain text (`.txt`) only — saved-HTML upload/extraction is gone — and generates EPUB + audiobook only; the standalone Markdown output format and the `reed markdown` command were removed. To bridge the gap, the web UI gained a prompt-guide card (`GET /api/prompts`) that hands the user a ready-to-paste prompt (`examples/llm-article-prompt.md`, `...-verbatim.md`, both shipped in the wheel) for fetching clean Markdown from an article URL via their own AI chat.
+- 2026-09-15 — English voices: British voices (`bf_emma`, `bm_george`, …) are selectable alongside the American set, and the curated web list is now `af_heart`, `am_michael`, `bf_emma`.
+- 2026-09-15 — v0.4.0 prepared: Misaki G2P, British voices, prompt guide, HTML-input/Markdown-output removal, CI build fixes (Cython 3.2.x build constraint). Checks green (ruff, mypy, 66 tests); tag and PyPI publish pending (user step).
